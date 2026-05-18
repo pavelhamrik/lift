@@ -1,0 +1,67 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+@theme {
+	--font-sans:
+		'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+		sans-serif;
+	--font-mono:
+		'Geist Mono', ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, monospace;
+
+	--radius: 0.625rem;
+
+	--color-bg: hsl(36 24% 97%);
+	--color-fg: hsl(28 20% 12%);
+	--color-muted: hsl(34 14% 92%);
+	--color-muted-fg: hsl(28 8% 40%);
+	--color-border: hsl(30 10% 88%);
+	--color-input: hsl(30 10% 88%);
+	--color-card: hsl(36 30% 99%);
+	--color-card-fg: hsl(28 20% 12%);
+	--color-accent: hsl(20 90% 50%);
+	--color-accent-fg: hsl(36 30% 99%);
+	--color-ring: hsl(20 90% 50%);
+	--color-up: hsl(150 60% 38%);
+	--color-down: hsl(2 70% 52%);
+	--color-target: hsl(20 90% 50%);
+	--color-benchmark: hsl(220 14% 50%);
+	--color-grid: hsl(30 10% 88%);
+}
+
+[data-theme='dark'] {
+	--color-bg: hsl(24 8% 8%);
+	--color-fg: hsl(36 14% 94%);
+	--color-muted: hsl(24 6% 14%);
+	--color-muted-fg: hsl(30 8% 64%);
+	--color-border: hsl(24 6% 20%);
+	--color-input: hsl(24 6% 20%);
+	--color-card: hsl(24 8% 10%);
+	--color-card-fg: hsl(36 14% 94%);
+	--color-accent: hsl(20 90% 56%);
+	--color-accent-fg: hsl(24 8% 8%);
+	--color-ring: hsl(20 90% 56%);
+	--color-up: hsl(150 56% 50%);
+	--color-down: hsl(2 80% 62%);
+	--color-target: hsl(20 90% 56%);
+	--color-benchmark: hsl(220 12% 66%);
+	--color-grid: hsl(24 6% 20%);
+}
+
+html,
+body {
+	background-color: var(--color-bg);
+	color: var(--color-fg);
+	font-family: var(--font-sans);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+* {
+	border-color: var(--color-border);
+}
+
+:focus-visible {
+	outline: 2px solid var(--color-ring);
+	outline-offset: 2px;
+}
