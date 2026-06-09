@@ -40,15 +40,21 @@ describe('canonicalizeAndValidate', () => {
 	});
 
 	it('rejects benchmark outside curated allowlist', () => {
-		const r = canonicalizeAndValidate({ symbol: 'AAPL', benchmark: 'QQQ', range: '1Y' });
+		const r = canonicalizeAndValidate({ symbol: 'AAPL', benchmark: 'XYZ', range: '1Y' });
 		expect(r.ok).toBe(false);
 		if (!r.ok) expect(r.field).toBe('benchmark');
 	});
 
 	it('rejects unknown range', () => {
-		const r = canonicalizeAndValidate({ symbol: 'AAPL', benchmark: 'SPY', range: '5D' });
+		const r = canonicalizeAndValidate({ symbol: 'AAPL', benchmark: 'SPY', range: '7D' });
 		expect(r.ok).toBe(false);
 		if (!r.ok) expect(r.field).toBe('range');
+	});
+
+	it.each(['1D', '5D', '1M', '6M', 'YTD', '1Y', '5Y', 'MAX'])('accepts range %s', (rangeStr) => {
+		const r = canonicalizeAndValidate({ symbol: 'AAPL', benchmark: 'SPY', range: rangeStr });
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.canonical.range).toBe(rangeStr);
 	});
 
 	it('cache key collapses lower/upper/whitespace variants', () => {

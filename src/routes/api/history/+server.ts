@@ -9,6 +9,7 @@ import {
 	BENCHMARKS,
 	effectiveReturnBasis,
 	intervalForRange,
+	periodForRange,
 	type BenchmarkSymbol
 } from '$lib/benchmarks.js';
 import { getProvider } from '$lib/providers/index.js';
@@ -56,11 +57,14 @@ function clientKey(request: Request, getClientAddress: () => string): string {
 	}
 }
 
-function buildRequest(range: Range, bench: BenchmarkSymbol): HistoryRequest {
+function buildRequest(range: Range, bench: BenchmarkSymbol, now: Date): HistoryRequest {
+	const { period1, period2 } = periodForRange(range, now);
 	return {
 		interval: intervalForRange(range),
 		session: 'regular',
-		adjusted: adjustedFor(range, bench)
+		adjusted: adjustedFor(range, bench),
+		period1,
+		period2
 	};
 }
 
@@ -125,7 +129,7 @@ export const GET: RequestHandler = async ({ url, request, getClientAddress, plat
 	}
 
 	const provider = getProvider();
-	const req = buildRequest(canonical.range, canonical.benchmark);
+	const req = buildRequest(canonical.range, canonical.benchmark, new Date());
 
 	const [tFetch, bFetch] = await Promise.all([
 		provider.getHistory(canonical.symbol, req).catch((e: unknown) => ({ error: e })),
@@ -145,7 +149,7 @@ export const GET: RequestHandler = async ({ url, request, getClientAddress, plat
 	const bRes = bFetch.result;
 
 	if (!isTargetInScope(tRes.meta)) {
-		throw error(400, `${canonical.symbol} is not a supported instrument (US equity/ETF only)`);
+		throw error(400, `${canonical.symbol} is not a supported instrument (equity, ETF, or index)`);
 	}
 	if (!BENCHMARKS[canonical.benchmark]) {
 		throw error(400, `unsupported benchmark`);

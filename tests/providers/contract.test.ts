@@ -14,17 +14,17 @@ const FIXTURE_DIR = path.join(__dirname, 'fixtures');
 
 type FixtureSpec = {
 	symbol: string;
-	expectedAsset: 'US_LISTED_EQUITY' | 'US_LISTED_ETF' | 'US_INDEX';
+	expectedAsset: 'EQUITY' | 'ETF' | 'INDEX';
 	rationale: string;
 };
 
 const SPECS: FixtureSpec[] = [
-	{ symbol: '^GSPC', expectedAsset: 'US_INDEX', rationale: 'index benchmark, price-only policy' },
-	{ symbol: 'SPY', expectedAsset: 'US_LISTED_ETF', rationale: 'ETF benchmark, total-return policy' },
-	{ symbol: 'AAPL', expectedAsset: 'US_LISTED_EQUITY', rationale: 'plain US equity, splits + dividends' },
+	{ symbol: '^GSPC', expectedAsset: 'INDEX', rationale: 'index benchmark, price-only policy' },
+	{ symbol: 'SPY', expectedAsset: 'ETF', rationale: 'ETF benchmark, total-return policy' },
+	{ symbol: 'AAPL', expectedAsset: 'EQUITY', rationale: 'plain US equity, splits + dividends' },
 	{
 		symbol: 'BRK.B',
-		expectedAsset: 'US_LISTED_EQUITY',
+		expectedAsset: 'EQUITY',
 		rationale: 'dotted-class share — exercises symbol-normalization path the regex admits'
 	}
 ];
@@ -96,7 +96,15 @@ describe('provider contract (offline, blocking)', () => {
 	for (const spec of SPECS) {
 		describe(`${spec.symbol} — ${spec.rationale}`, () => {
 			const raw = loadFixture(spec.symbol);
-			const req: HistoryRequest = { interval: '1d', session: 'regular', adjusted: false };
+			const period1 = Math.floor(new Date('2024-01-01').getTime() / 1000);
+			const period2 = Math.floor(new Date('2027-01-01').getTime() / 1000);
+			const req: HistoryRequest = {
+				interval: '1d',
+				session: 'regular',
+				adjusted: false,
+				period1,
+				period2
+			};
 			let res: HistoryResult;
 
 			it('produces canonical HistoryResult shape', () => {
@@ -134,7 +142,7 @@ describe('provider contract (offline, blocking)', () => {
 			it('adjusted=true selects adjclose when present', () => {
 				const r1 = buildResultFromChart(
 					raw,
-					{ interval: '1d', session: 'regular', adjusted: true },
+					{ interval: '1d', session: 'regular', adjusted: true, period1, period2 },
 					fixedNow(),
 					spec.symbol
 				);
