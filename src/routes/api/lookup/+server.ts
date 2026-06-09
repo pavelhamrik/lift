@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import YahooFinance from 'yahoo-finance2';
 import { LRUCache } from '$lib/server/cache.js';
 import { SlidingWindowThrottle } from '$lib/server/throttle.js';
+import { checkEdgeRateLimit } from '$lib/server/ratelimit.js';
 
 const SYMBOL_RE = /^[A-Z\^.\-]{1,8}$/;
 
@@ -30,6 +31,8 @@ export const GET: RequestHandler = async ({ url, request, getClientAddress, plat
 	if (!SYMBOL_RE.test(raw)) throw error(400, 'invalid symbol');
 
 	const tKey = clientKey(request, getClientAddress);
+	const edgeLimited = await checkEdgeRateLimit(platform, tKey);
+	if (edgeLimited) return edgeLimited;
 	const gate = throttle.take(tKey);
 	if (!gate.ok) {
 		return new Response('Too Many Requests', {

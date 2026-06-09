@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import { canonicalizeAndValidate, canonicalCacheKey, canonicalRequestUrl } from '$lib/server/validate.js';
 import { LRUCache } from '$lib/server/cache.js';
 import { SlidingWindowThrottle } from '$lib/server/throttle.js';
+import { checkEdgeRateLimit } from '$lib/server/ratelimit.js';
 import { isTargetInScope } from '$lib/server/scope.js';
 import {
 	adjustedFor,
@@ -88,6 +89,8 @@ export const GET: RequestHandler = async ({ url, request, getClientAddress, plat
 	const canonical = validation.canonical;
 
 	const tKey = clientKey(request, getClientAddress);
+	const edgeLimited = await checkEdgeRateLimit(platform, tKey);
+	if (edgeLimited) return edgeLimited;
 	const gate = throttle.take(tKey);
 	if (!gate.ok) {
 		return new Response('Too Many Requests', {
