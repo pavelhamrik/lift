@@ -14,6 +14,7 @@
 	import { createThemeStore, type ThemeMode } from '$lib/theme/mode.svelte.js';
 	import { isBenchmarkSymbol, type BenchmarkSymbol } from '$lib/benchmarks.js';
 	import CompareAddMenu from '$lib/components/ui/CompareAddMenu.svelte';
+	import AccountMenu from '$lib/components/ui/AccountMenu.svelte';
 	import { RANGES, type Range } from '$lib/providers/types.js';
 	import { cn } from '$lib/utils.js';
 	import {
@@ -21,8 +22,11 @@
 		parseSelectionParams,
 		selectionToSearchParams,
 		serializeSelection,
-		SELECTION_STORAGE_KEY
+		SELECTION_STORAGE_KEY,
+		type StoredSelection
 	} from '$lib/selection.js';
+
+	let { data: pageData } = $props();
 
 	type ClosePoint = { time: number; close: number };
 	type SeriesKind = 'stock' | 'comparison';
@@ -311,6 +315,15 @@
 		void load();
 	}
 
+	function applySelection(sel: StoredSelection) {
+		stocks = [...sel.stocks];
+		compares = [...sel.compares];
+		range = sel.range;
+		stockInput = '';
+		stockInputError = null;
+		void load();
+	}
+
 	function onStockKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter') {
 			e.preventDefault();
@@ -576,6 +589,15 @@
 					Share
 				{/if}
 			</button>
+
+			{#if pageData.supabase}
+				<AccountMenu
+					supabase={pageData.supabase}
+					user={pageData.user}
+					selection={{ stocks: [...stocks], compares: [...compares], range }}
+					onLoad={applySelection}
+				/>
+			{/if}
 
 			<button
 				type="button"

@@ -42,6 +42,8 @@
 		"wrangler": "^4.81.0"
 	},
 	"dependencies": {
+		"@supabase/ssr": "^0.12.0",
+		"@supabase/supabase-js": "^2.108.0",
 		"bits-ui": "^2.18.1",
 		"clsx": "^2.1.1",
 		"lightweight-charts": "^5.2.0",
