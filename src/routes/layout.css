@@ -4,54 +4,75 @@
 
 @theme {
 	--font-sans:
-		'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
-		sans-serif;
+		ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+		'Helvetica Neue', Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
 	--font-mono:
-		'Geist Mono', ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, monospace;
+		ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+		monospace;
 
-	--radius: 0.625rem;
+	--radius: 0.5rem;
 
-	--color-bg: hsl(36 24% 97%);
-	--color-fg: hsl(28 20% 12%);
-	--color-muted: hsl(34 14% 92%);
-	--color-muted-fg: hsl(28 8% 40%);
-	--color-border: hsl(30 10% 88%);
-	--color-input: hsl(30 10% 88%);
-	--color-card: hsl(36 30% 99%);
-	--color-card-fg: hsl(28 20% 12%);
-	--color-accent: hsl(20 90% 50%);
-	--color-accent-fg: hsl(36 30% 99%);
-	--color-ring: hsl(20 90% 50%);
-	--color-up: hsl(150 60% 38%);
-	--color-down: hsl(2 70% 52%);
-	--color-target: hsl(20 90% 50%);
-	--color-benchmark: hsl(220 14% 50%);
-	--color-grid: hsl(30 10% 88%);
+	--color-background: hsl(0 0% 100%);
+	--color-foreground: hsl(240 10% 3.9%);
+	--color-card: hsl(0 0% 100%);
+	--color-card-foreground: hsl(240 10% 3.9%);
+	--color-popover: hsl(0 0% 100%);
+	--color-popover-foreground: hsl(240 10% 3.9%);
+	--color-primary: hsl(199 89% 48%);
+	--color-primary-foreground: hsl(0 0% 98%);
+	--color-secondary: hsl(240 4.8% 95.9%);
+	--color-secondary-foreground: hsl(240 5.9% 10%);
+	--color-muted: hsl(240 4.8% 95.9%);
+	--color-muted-foreground: hsl(240 3.8% 46.1%);
+	--color-accent: hsl(240 5.9% 90%);
+	--color-accent-foreground: hsl(240 5.9% 10%);
+	--color-destructive: hsl(0 84.2% 60.2%);
+	--color-destructive-foreground: hsl(0 0% 98%);
+	--color-border: hsl(240 5.9% 90%);
+	--color-input: hsl(240 5.9% 90%);
+	--color-ring: hsl(199 89% 48%);
+
+	--color-up: hsl(142 70% 36%);
+	--color-down: hsl(0 75% 50%);
+	--color-target: hsl(199 89% 48%);
+	--color-benchmark: hsl(240 5% 50%);
+	--color-volume: hsl(199 89% 48% / 0.45);
+	--color-grid: hsl(240 5.9% 90%);
 }
 
 [data-theme='dark'] {
-	--color-bg: hsl(24 8% 8%);
-	--color-fg: hsl(36 14% 94%);
-	--color-muted: hsl(24 6% 14%);
-	--color-muted-fg: hsl(30 8% 64%);
-	--color-border: hsl(24 6% 20%);
-	--color-input: hsl(24 6% 20%);
-	--color-card: hsl(24 8% 10%);
-	--color-card-fg: hsl(36 14% 94%);
-	--color-accent: hsl(20 90% 56%);
-	--color-accent-fg: hsl(24 8% 8%);
-	--color-ring: hsl(20 90% 56%);
-	--color-up: hsl(150 56% 50%);
-	--color-down: hsl(2 80% 62%);
-	--color-target: hsl(20 90% 56%);
-	--color-benchmark: hsl(220 12% 66%);
-	--color-grid: hsl(24 6% 20%);
+	--color-background: hsl(240 10% 3.9%);
+	--color-foreground: hsl(0 0% 98%);
+	--color-card: hsl(240 10% 3.9%);
+	--color-card-foreground: hsl(0 0% 98%);
+	--color-popover: hsl(240 10% 3.9%);
+	--color-popover-foreground: hsl(0 0% 98%);
+	--color-primary: hsl(198 93% 60%);
+	--color-primary-foreground: hsl(200 50% 12%);
+	--color-secondary: hsl(240 3.7% 15.9%);
+	--color-secondary-foreground: hsl(0 0% 98%);
+	--color-muted: hsl(240 3.7% 15.9%);
+	--color-muted-foreground: hsl(240 5% 64.9%);
+	--color-accent: hsl(240 4% 22%);
+	--color-accent-foreground: hsl(0 0% 98%);
+	--color-destructive: hsl(0 62.8% 30.6%);
+	--color-destructive-foreground: hsl(0 0% 98%);
+	--color-border: hsl(240 3.7% 15.9%);
+	--color-input: hsl(240 3.7% 15.9%);
+	--color-ring: hsl(198 93% 60%);
+
+	--color-up: hsl(142 55% 50%);
+	--color-down: hsl(0 70% 60%);
+	--color-target: hsl(198 93% 60%);
+	--color-benchmark: hsl(240 5% 65%);
+	--color-volume: hsl(198 93% 60% / 0.55);
+	--color-grid: hsl(240 3.7% 18%);
 }
 
 html,
 body {
-	background-color: var(--color-bg);
-	color: var(--color-fg);
+	background-color: var(--color-background);
+	color: var(--color-foreground);
 	font-family: var(--font-sans);
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
@@ -61,7 +82,12 @@ body {
 	border-color: var(--color-border);
 }
 
+/* Subtle keyboard-only focus ring as a fallback. Per-component classes can
+   override with their own border-on-focus + softer ring treatment. */
+:focus {
+	outline: none;
+}
 :focus-visible {
-	outline: 2px solid var(--color-ring);
+	outline: 1px solid color-mix(in srgb, var(--color-ring) 55%, transparent);
 	outline-offset: 2px;
 }

@@ -1,4 +1,4 @@
-import type { Range } from '$lib/providers/types.js';
+import { RANGES, type Range } from '$lib/providers/types.js';
 import {
 	BENCHMARKS,
 	DEFAULT_BENCHMARK,
@@ -8,7 +8,6 @@ import {
 } from '$lib/benchmarks.js';
 
 const SYMBOL_RE = /^[A-Z\^.\-]{1,8}$/;
-const RANGES: ReadonlyArray<Range> = ['1D', '1Y'];
 
 export type Canonical = {
 	symbol: string;
@@ -43,7 +42,7 @@ export function canonicalizeAndValidate(input: {
 
 	const rangeInput = (input.range ?? '').trim().toUpperCase();
 	const range = (rangeInput || DEFAULT_RANGE) as Range;
-	if (!RANGES.includes(range)) {
+	if (!(RANGES as ReadonlyArray<string>).includes(range)) {
 		return { ok: false, error: `range must be one of: ${RANGES.join(', ')}`, field: 'range' };
 	}
 

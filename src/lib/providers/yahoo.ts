@@ -5,6 +5,7 @@ import type {
 	HistoryRequest,
 	HistoryResult,
 	InstrumentMeta,
+	Interval,
 	PriceProvider,
 	ProviderTrace
 } from './types.js';
@@ -39,7 +40,7 @@ export type FetchChart = (
 	opts: {
 		period1: Date;
 		period2: Date;
-		interval: '1m' | '5m' | '1d';
+		interval: Interval;
 		includePrePost: boolean;
 	}
 ) => Promise<YahooChartResult>;
@@ -54,24 +55,33 @@ export function mapInstrumentMeta(m: YahooChartMeta): InstrumentMeta {
 	const it = (m.instrumentType ?? '').toUpperCase();
 	const country: Country = US_EXCHANGES.has(ex) ? 'US' : it === 'INDEX' ? 'US' : 'OTHER';
 	let asset: Asset = 'OTHER';
-	if (it === 'EQUITY') asset = 'US_LISTED_EQUITY';
-	else if (it === 'ETF') asset = 'US_LISTED_ETF';
-	else if (it === 'INDEX') asset = 'US_INDEX';
-	if (asset !== 'US_INDEX' && country !== 'US') {
-		return { country: 'OTHER', asset: 'OTHER' };
-	}
+	if (it === 'EQUITY') asset = 'EQUITY';
+	else if (it === 'ETF') asset = 'ETF';
+	else if (it === 'INDEX') asset = 'INDEX';
 	return { country, asset };
 }
 
-function windowStart(now: Date, interval: '1m' | '5m' | '1d'): Date {
-	const d = new Date(now);
-	if (interval === '1d') {
-		d.setUTCFullYear(d.getUTCFullYear() - 1);
-		d.setUTCDate(d.getUTCDate() - 5);
-		return d;
+const DAILY_OR_LONGER: ReadonlySet<string> = new Set(['1d', '1wk', '1mo']);
+
+function localCalendarDateUTC(d: Date, tz: string): number {
+	try {
+		const parts = new Intl.DateTimeFormat('en-CA', {
+			timeZone: tz,
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit'
+		}).formatToParts(d);
+		const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+		const y = Number(get('year'));
+		const m = Number(get('month'));
+		const day = Number(get('day'));
+		if (!y || !m || !day) return Math.floor(d.getTime() / 1000);
+		return Math.floor(Date.UTC(y, m - 1, day) / 1000);
+	} catch {
+		return Math.floor(
+			Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 1000
+		);
 	}
-	d.setUTCDate(d.getUTCDate() - 5);
-	return d;
 }
 
 export function buildResultFromChart(
@@ -80,15 +90,18 @@ export function buildResultFromChart(
 	now: Date,
 	providerSymbol: string
 ): HistoryResult {
-	const trimmed =
-		req.interval === '1d' ? trimToOneYear(raw.quotes, now) : trimToToday(raw.quotes, now);
-	const bars = trimmed
+	const tz = raw.meta.exchangeTimezoneName ?? raw.meta.timezone ?? 'UTC';
+	const normalizeDailyBars = DAILY_OR_LONGER.has(req.interval);
+	const bars = raw.quotes
 		.filter((q) => q.close != null && Number.isFinite(q.close))
 		.map((q) => ({
-			time: Math.floor(q.date.getTime() / 1000),
+			time: normalizeDailyBars
+				? localCalendarDateUTC(q.date, tz)
+				: Math.floor(q.date.getTime() / 1000),
 			close: req.adjusted && q.adjclose != null ? q.adjclose : (q.close as number),
 			volume: q.volume ?? 0
-		}));
+		}))
+		.filter((b) => b.time >= req.period1 && b.time <= req.period2);
 
 	const meta: InstrumentMeta = mapInstrumentMeta(raw.meta);
 	const last = bars[bars.length - 1];
@@ -120,15 +133,14 @@ export function makeYahooProvider(fetcher: FetchChart = defaultFetch): PriceProv
 	return {
 		name: 'yahoo',
 		supports(req) {
-			return ['1m', '5m', '1d'].includes(req.interval);
+			return ['1m', '5m', '15m', '30m', '1h', '1d', '1wk', '1mo'].includes(req.interval);
 		},
 		async getHistory(symbol, req) {
 			const providerSymbol = symbol;
 			const now = new Date();
-			const period1 = windowStart(now, req.interval);
 			const raw = await fetcher(providerSymbol, {
-				period1,
-				period2: now,
+				period1: new Date(req.period1 * 1000),
+				period2: new Date(req.period2 * 1000),
 				interval: req.interval,
 				includePrePost: req.session === 'extended'
 			});
@@ -138,16 +150,4 @@ export function makeYahooProvider(fetcher: FetchChart = defaultFetch): PriceProv
 			return { result, trace };
 		}
 	};
-}
-
-function trimToToday(quotes: YahooQuote[], now: Date): YahooQuote[] {
-	const dayStartUtc =
-		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - 86_400_000;
-	return quotes.filter((q) => q.date.getTime() >= dayStartUtc);
-}
-
-function trimToOneYear(quotes: YahooQuote[], now: Date): YahooQuote[] {
-	const cutoff = new Date(now);
-	cutoff.setUTCFullYear(cutoff.getUTCFullYear() - 1);
-	return quotes.filter((q) => q.date.getTime() >= cutoff.getTime());
 }
