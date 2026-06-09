@@ -18,6 +18,8 @@
 	import { cn } from '$lib/utils.js';
 	import {
 		parseSelection,
+		parseSelectionParams,
+		selectionToSearchParams,
 		serializeSelection,
 		SELECTION_STORAGE_KEY
 	} from '$lib/selection.js';
@@ -58,6 +60,8 @@
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 	let data = $state<MultiResponse | null>(null);
+	let shareCopied = $state(false);
+	let shareTimer: ReturnType<typeof setTimeout> | null = null;
 
 	type LookupStatus = 'idle' | 'loading' | 'found' | 'notfound' | 'error';
 	let lookupStatus = $state<LookupStatus>('idle');
@@ -184,6 +188,37 @@
 		}
 	}
 
+	function syncUrl() {
+		if (!browser) return;
+		const params = selectionToSearchParams({ stocks: [...stocks], compares: [...compares], range });
+		try {
+			// replaceState (not pushState) so the address bar stays shareable without
+			// polluting history; pass the existing state to keep SvelteKit's router happy.
+			window.history.replaceState(
+				window.history.state,
+				'',
+				`${window.location.pathname}?${params.toString()}`
+			);
+		} catch {
+			/* ignore */
+		}
+	}
+
+	async function share() {
+		const params = selectionToSearchParams({ stocks: [...stocks], compares: [...compares], range });
+		const url = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+		try {
+			await navigator.clipboard.writeText(url);
+		} catch {
+			/* clipboard may be blocked; the link is still live in the address bar */
+		}
+		shareCopied = true;
+		if (shareTimer) clearTimeout(shareTimer);
+		shareTimer = setTimeout(() => {
+			shareCopied = false;
+		}, 1500);
+	}
+
 	async function load() {
 		if (stocks.length === 0) {
 			error = 'Add at least one stock';
@@ -204,6 +239,7 @@
 			data = (await r.json()) as MultiResponse;
 			renderChart();
 			persistSelection();
+			syncUrl();
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 			data = null;
@@ -327,7 +363,9 @@
 	onMount(() => {
 		if (!chartEl) return;
 		try {
-			const stored = parseSelection(localStorage.getItem(SELECTION_STORAGE_KEY));
+			// A shared link (?stocks=…&compares=…&range=…) wins over saved local state.
+			const fromUrl = parseSelectionParams(new URLSearchParams(window.location.search));
+			const stored = fromUrl ?? parseSelection(localStorage.getItem(SELECTION_STORAGE_KEY));
 			if (stored) {
 				stocks = stored.stocks;
 				compares = stored.compares;
@@ -356,6 +394,7 @@
 		tooltipUnsub?.();
 		handles?.dispose();
 		theme.destroy();
+		if (shareTimer) clearTimeout(shareTimer);
 	});
 
 	const primarySeries = $derived.by(() => data?.series.find((s) => s.kind === 'stock'));
@@ -492,6 +531,52 @@
 		</div>
 
 		<div class="ml-auto inline-flex items-center gap-2">
+			<button
+				type="button"
+				title={shareCopied ? 'Link copied' : 'Copy shareable link'}
+				aria-label="Copy shareable link"
+				onclick={() => void share()}
+				class={cn(
+					'inline-flex h-9 items-center justify-center gap-1.5 rounded-full border px-4 text-sm font-medium',
+					'bg-(--color-card) text-(--color-card-foreground) hover:bg-(--color-muted)',
+					'border-(--color-input) transition-colors',
+					'focus:border-(--color-ring) focus:outline-none'
+				)}
+			>
+				{#if shareCopied}
+					<svg
+						viewBox="0 0 24 24"
+						class="h-4 w-4"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true"
+					>
+						<path d="M20 6L9 17l-5-5" />
+					</svg>
+					Copied
+				{:else}
+					<svg
+						viewBox="0 0 24 24"
+						class="h-4 w-4"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.75"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true"
+					>
+						<circle cx="18" cy="5" r="3" />
+						<circle cx="6" cy="12" r="3" />
+						<circle cx="18" cy="19" r="3" />
+						<path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" />
+					</svg>
+					Share
+				{/if}
+			</button>
+
 			<button
 				type="button"
 				title="Reset to defaults"

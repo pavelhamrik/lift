@@ -28,6 +28,35 @@ function dedupe<T>(arr: T[]): T[] {
 	return out;
 }
 
+function buildSelection(
+	stocksIn: unknown[],
+	comparesIn: unknown[],
+	rangeRaw: string
+): StoredSelection | null {
+	if (!(RANGES as ReadonlyArray<string>).includes(rangeRaw)) return null;
+	const range = rangeRaw as Range;
+
+	const stocks: string[] = [];
+	for (const s of stocksIn) {
+		const v = normalizeSymbol(s);
+		if (v) stocks.push(v);
+	}
+	const compares: BenchmarkSymbol[] = [];
+	for (const c of comparesIn) {
+		if (typeof c !== 'string') continue;
+		const v = c.trim().toUpperCase();
+		if (isBenchmarkSymbol(v)) compares.push(v);
+	}
+
+	if (stocks.length === 0) return null;
+
+	return {
+		stocks: dedupe(stocks),
+		compares: dedupe(compares),
+		range
+	};
+}
+
 export function parseSelection(raw: string | null): StoredSelection | null {
 	if (!raw) return null;
 	try {
@@ -36,8 +65,6 @@ export function parseSelection(raw: string | null): StoredSelection | null {
 		const o = obj as Record<string, unknown>;
 
 		const rangeRaw = typeof o.range === 'string' ? o.range.trim().toUpperCase() : '';
-		if (!(RANGES as ReadonlyArray<string>).includes(rangeRaw)) return null;
-		const range = rangeRaw as Range;
 
 		let stocksIn: unknown[] = [];
 		let comparesIn: unknown[] = [];
@@ -53,25 +80,7 @@ export function parseSelection(raw: string | null): StoredSelection | null {
 			return null;
 		}
 
-		const stocks: string[] = [];
-		for (const s of stocksIn) {
-			const v = normalizeSymbol(s);
-			if (v) stocks.push(v);
-		}
-		const compares: BenchmarkSymbol[] = [];
-		for (const c of comparesIn) {
-			if (typeof c !== 'string') continue;
-			const v = c.trim().toUpperCase();
-			if (isBenchmarkSymbol(v)) compares.push(v);
-		}
-
-		if (stocks.length === 0) return null;
-
-		return {
-			stocks: dedupe(stocks),
-			compares: dedupe(compares),
-			range
-		};
+		return buildSelection(stocksIn, comparesIn, rangeRaw);
 	} catch {
 		return null;
 	}
@@ -79,4 +88,33 @@ export function parseSelection(raw: string | null): StoredSelection | null {
 
 export function serializeSelection(s: StoredSelection): string {
 	return JSON.stringify({ stocks: s.stocks, compares: s.compares, range: s.range });
+}
+
+/** Parse a selection from URL query params (?stocks=AAPL,MSFT&compares=SPY&range=1Y). */
+export function parseSelectionParams(params: URLSearchParams): StoredSelection | null {
+	const stocksRaw = params.get('stocks');
+	const comparesRaw = params.get('compares');
+	const rangeParam = params.get('range');
+	if (stocksRaw === null && comparesRaw === null && rangeParam === null) return null;
+
+	const splitCsv = (raw: string | null): string[] =>
+		(raw ?? '')
+			.split(',')
+			.map((s) => s.trim())
+			.filter(Boolean);
+
+	return buildSelection(
+		splitCsv(stocksRaw),
+		splitCsv(comparesRaw),
+		(rangeParam ?? '').trim().toUpperCase()
+	);
+}
+
+/** Encode a selection into URL query params for shareable links. */
+export function selectionToSearchParams(s: StoredSelection): URLSearchParams {
+	const params = new URLSearchParams();
+	params.set('stocks', s.stocks.join(','));
+	if (s.compares.length > 0) params.set('compares', s.compares.join(','));
+	params.set('range', s.range);
+	return params;
 }
