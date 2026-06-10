@@ -1,4 +1,3 @@
-import YahooFinance from 'yahoo-finance2';
 import type {
 	Asset,
 	Country,
@@ -45,10 +44,60 @@ export type FetchChart = (
 	}
 ) => Promise<YahooChartResult>;
 
-const defaultClient = new YahooFinance({ suppressNotices: ['yahooSurvey', 'ripHistorical'] });
+// Yahoo's public chart JSON API. The v8 chart endpoint needs no crumb/cookie
+// (unlike quote/quoteSummary), so a plain fetch works on the Workers runtime —
+// which is why we call it directly instead of via yahoo-finance2 (that library
+// pulls in @deno/shim-deno, which references the CJS global __dirname and so
+// fails to even load under workerd).
+const YAHOO_CHART_BASE = 'https://query1.finance.yahoo.com/v8/finance/chart';
+const YAHOO_UA =
+	'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-const defaultFetch: FetchChart = async (symbol, opts) =>
-	(await defaultClient.chart(symbol, { ...opts, return: 'array' })) as YahooChartResult;
+type YahooChartApiResponse = {
+	chart?: {
+		result?: Array<{
+			meta?: YahooChartMeta;
+			timestamp?: number[];
+			indicators?: {
+				quote?: Array<{ close?: (number | null)[]; volume?: (number | null)[] }>;
+				adjclose?: Array<{ adjclose?: (number | null)[] }>;
+			};
+		}>;
+		error?: { description?: string } | null;
+	};
+};
+
+const defaultFetch: FetchChart = async (symbol, opts) => {
+	const url = new URL(`${YAHOO_CHART_BASE}/${encodeURIComponent(symbol)}`);
+	url.searchParams.set('period1', String(Math.floor(opts.period1.getTime() / 1000)));
+	url.searchParams.set('period2', String(Math.floor(opts.period2.getTime() / 1000)));
+	url.searchParams.set('interval', opts.interval);
+	url.searchParams.set('includePrePost', opts.includePrePost ? 'true' : 'false');
+	// `events=div,splits` makes Yahoo include the adjusted-close series we need
+	// for total-return benchmarks.
+	url.searchParams.set('events', 'div,splits');
+
+	const res = await fetch(url, { headers: { 'User-Agent': YAHOO_UA, accept: 'application/json' } });
+	if (!res.ok) throw new Error(`yahoo chart ${symbol}: HTTP ${res.status}`);
+
+	const json = (await res.json()) as YahooChartApiResponse;
+	const result = json.chart?.result?.[0];
+	if (!result || !result.meta) {
+		throw new Error(`yahoo chart ${symbol}: ${json.chart?.error?.description ?? 'no result'}`);
+	}
+
+	const timestamps = result.timestamp ?? [];
+	const quote = result.indicators?.quote?.[0] ?? {};
+	const adjclose = result.indicators?.adjclose?.[0]?.adjclose;
+	const quotes: YahooQuote[] = timestamps.map((t, i) => ({
+		date: new Date(t * 1000),
+		close: quote.close?.[i] ?? null,
+		adjclose: adjclose?.[i] ?? null,
+		volume: quote.volume?.[i] ?? null
+	}));
+
+	return { meta: result.meta, quotes };
+};
 
 export function mapInstrumentMeta(m: YahooChartMeta): InstrumentMeta {
 	const ex = (m.exchangeName ?? '').toUpperCase();

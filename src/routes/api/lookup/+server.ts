@@ -1,19 +1,32 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import YahooFinance from 'yahoo-finance2';
 import { LRUCache } from '$lib/server/cache.js';
 import { SlidingWindowThrottle } from '$lib/server/throttle.js';
 import { checkEdgeRateLimit } from '$lib/server/ratelimit.js';
 
 const SYMBOL_RE = /^[A-Z\^.\-]{1,8}$/;
 
+// Yahoo's public search endpoint resolves a symbol to its display name without
+// a crumb/cookie, so it works on the Workers runtime. (We avoid yahoo-finance2
+// here for the same reason as the history provider: it can't load under workerd.)
+const YAHOO_SEARCH_BASE = 'https://query1.finance.yahoo.com/v1/finance/search';
+const YAHOO_UA =
+	'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
 type LookupResult = { symbol: string; name: string; currency?: string };
 type CachedEntry = { kind: 'found'; value: LookupResult } | { kind: 'notfound' };
 
+type YahooSearchResponse = {
+	quotes?: Array<{
+		symbol?: string;
+		shortname?: string;
+		longname?: string;
+		currency?: string;
+	}>;
+};
+
 const cache = new LRUCache<CachedEntry>({ max: 1000, ttlMs: 24 * 60 * 60 * 1000 });
 const throttle = new SlidingWindowThrottle({ windowMs: 60_000, max: 60 });
-
-const client = new YahooFinance({ suppressNotices: ['yahooSurvey', 'ripHistorical'] });
 
 function clientKey(request: Request, getClientAddress: () => string): string {
 	const cfIp = request.headers.get('cf-connecting-ip');
@@ -89,36 +102,33 @@ export const GET: RequestHandler = async ({ url, request, getClientAddress, plat
 		}
 	}
 
-	let q: unknown;
+	let searchJson: YahooSearchResponse;
 	try {
-		q = await client.quote(raw);
+		const u = new URL(YAHOO_SEARCH_BASE);
+		u.searchParams.set('q', raw);
+		u.searchParams.set('quotesCount', '6');
+		u.searchParams.set('newsCount', '0');
+		const res = await fetch(u, { headers: { 'User-Agent': YAHOO_UA, accept: 'application/json' } });
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		searchJson = (await res.json()) as YahooSearchResponse;
 	} catch {
 		cache.set(lruKey, { kind: 'notfound' });
 		throw error(404, 'not found');
 	}
 
-	if (!q || typeof q !== 'object') {
-		cache.set(lruKey, { kind: 'notfound' });
-		throw error(404, 'not found');
-	}
-
-	const obj = q as {
-		longName?: string;
-		shortName?: string;
-		displayName?: string;
-		symbol?: string;
-		currency?: string;
-	};
-	const name = obj.longName ?? obj.shortName ?? obj.displayName ?? '';
-	if (!name) {
+	const quotes = searchJson.quotes ?? [];
+	// Prefer an exact symbol match; fall back to the top-ranked result.
+	const match = quotes.find((q) => (q.symbol ?? '').toUpperCase() === raw) ?? quotes[0];
+	const name = match?.longname ?? match?.shortname ?? '';
+	if (!match || !match.symbol || !name) {
 		cache.set(lruKey, { kind: 'notfound' });
 		throw error(404, 'not found');
 	}
 
 	const result: LookupResult = {
-		symbol: obj.symbol ?? raw,
+		symbol: match.symbol,
 		name,
-		currency: obj.currency
+		currency: match.currency
 	};
 	cache.set(lruKey, { kind: 'found', value: result });
 
