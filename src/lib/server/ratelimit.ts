@@ -30,10 +30,19 @@ export async function checkEdgeRateLimit(
 ): Promise<Response | null> {
 	const limiter = getRateLimiter(platform);
 	if (!limiter) return null;
-	const { success } = await limiter.limit({ key });
-	if (success) return null;
-	return new Response('Too Many Requests', {
-		status: 429,
-		headers: { 'Retry-After': '60' }
-	});
+	try {
+		const { success } = await limiter.limit({ key });
+		if (success) return null;
+		return new Response('Too Many Requests', {
+			status: 429,
+			headers: { 'Retry-After': '60' }
+		});
+	} catch (e) {
+		// The edge limiter is a best-effort abuse control, never load-bearing for
+		// correctness. If the binding misbehaves (rejects, or returns an
+		// unexpected shape), fail open: log it and let the in-process
+		// SlidingWindowThrottle remain the floor, rather than 500 the request.
+		console.error('edge rate limiter failed; allowing request', e);
+		return null;
+	}
 }
