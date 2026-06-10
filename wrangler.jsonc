@@ -11,6 +11,9 @@
 	"workers_dev": true,
 	"preview_urls": true,
 
+	// Surface runtime logs/exceptions in the Cloudflare dashboard (Worker → Logs).
+	"observability": { "enabled": true },
+
 	// Cloudflare Workers Rate Limiting binding — primary per-IP control once on CF.
 	// Per CF docs: per-Cloudflare-location, eventually consistent, IP-based keys
 	// false-positive NAT/CGNAT — tune limits from analytics, treat as raising the

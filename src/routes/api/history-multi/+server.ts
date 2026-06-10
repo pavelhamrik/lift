@@ -208,17 +208,23 @@ export const GET: RequestHandler = async ({ url, request, getClientAddress, plat
 		  }
 		| undefined;
 	if (edgeCaches) {
-		const edgeHit = await edgeCaches.default.match(cacheKey);
-		if (edgeHit) {
-			try {
-				const parsed = (await edgeHit.clone().json()) as MultiResponse;
-				cache.set(lruKey, parsed);
-			} catch {
-				/* ignore parse errors */
+		try {
+			const edgeHit = await edgeCaches.default.match(cacheKey);
+			if (edgeHit) {
+				try {
+					const parsed = (await edgeHit.clone().json()) as MultiResponse;
+					cache.set(lruKey, parsed);
+				} catch {
+					/* ignore parse errors */
+				}
+				const out = new Response(edgeHit.body, edgeHit);
+				out.headers.set('X-Cache', 'edge-hit');
+				return out;
 			}
-			const out = new Response(edgeHit.body, edgeHit);
-			out.headers.set('X-Cache', 'edge-hit');
-			return out;
+		} catch (e) {
+			// Edge cache is a best-effort optimization; a read failure must not
+			// take down the request. Log and fall through to a fresh fetch.
+			console.error('edge cache read failed; proceeding without it', e);
 		}
 	}
 
