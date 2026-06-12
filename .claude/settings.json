@@ -1,0 +1,24 @@
+{
+	"hooks": {
+		"SessionStart": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "common=\"$(git rev-parse --git-common-dir 2>/dev/null)\"; gitdir=\"$(git rev-parse --git-dir 2>/dev/null)\"; if git rev-parse --is-inside-work-tree >/dev/null 2>&1 && [ -n \"$common\" ] && [ \"$common\" != \"$gitdir\" ]; then main=\"$(cd \"$(dirname \"$common\")\" && pwd)\"; for f in .env; do if [ ! -L \"$f\" ] && [ -e \"$main/$f\" ]; then rm -rf \"$f\" && ln -s \"$main/$f\" \"$f\" && echo \"Symlinked $f from $main\"; fi; done; fi"
+					}
+				]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "if [ -n \"$(git status --porcelain 2>/dev/null)\" ]; then npx svelte-kit sync >/dev/null 2>&1; npx svelte-check --tsconfig ./tsconfig.json 2>&1 | tail -20; fi"
+					}
+				]
+			}
+		]
+	}
+}
