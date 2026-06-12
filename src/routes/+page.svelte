@@ -15,13 +15,15 @@
 	import { isBenchmarkSymbol, type BenchmarkSymbol } from '$lib/benchmarks.js';
 	import CompareAddMenu from '$lib/components/ui/CompareAddMenu.svelte';
 	import AccountMenu from '$lib/components/ui/AccountMenu.svelte';
+	import Logo from '$lib/components/ui/Logo.svelte';
+	import OverflowMenu from '$lib/components/ui/OverflowMenu.svelte';
 	import { RANGES, type Range } from '$lib/providers/types.js';
 	import { cn } from '$lib/utils.js';
 	import {
-		parseSelection,
 		parseSelectionParams,
 		selectionToSearchParams,
 		serializeSelection,
+		loadStoredSelection,
 		SELECTION_STORAGE_KEY,
 		type StoredSelection
 	} from '$lib/selection.js';
@@ -62,10 +64,27 @@
 	let stockInput = $state('');
 	let stockInputError = $state<string | null>(null);
 	let loading = $state(false);
-	let error = $state<string | null>(null);
+	type LoadError = { title: string; detail: string; retryable: boolean };
+	let loadError = $state<LoadError | null>(null);
+	// Bumped per request so only the most recent load commits its result.
+	let loadSeq = 0;
+	// Count of requests currently awaiting the network (foreground + background);
+	// gates auto-refresh so it never overlaps an in-flight load.
+	let inFlight = 0;
+	// Set when a background auto-refresh fails; surfaced as a non-blocking notice
+	// while the last successful data stays on screen.
+	let refreshFailed = $state(false);
 	let data = $state<MultiResponse | null>(null);
 	let shareCopied = $state(false);
 	let shareTimer: ReturnType<typeof setTimeout> | null = null;
+
+	// Auto-refresh the current selection once a minute, but only while the tab is
+	// in the foreground (a backgrounded tab shouldn't keep hitting the API). When
+	// the tab comes back to the foreground after missing at least one cycle, we
+	// fetch immediately to catch up.
+	const AUTO_REFRESH_MS = 60_000;
+	let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+	let lastLoadAt = 0;
 
 	type LookupStatus = 'idle' | 'loading' | 'found' | 'notfound' | 'error';
 	let lookupStatus = $state<LookupStatus>('idle');
@@ -137,7 +156,8 @@
 		const w = chartEl.clientWidth;
 		const h = chartEl.clientHeight;
 		const tipW = 220;
-		const tipCount = tooltip.values.length + (tooltip.volume !== undefined && tooltip.volume > 0 ? 1 : 0);
+		const tipCount =
+			tooltip.values.length + (tooltip.volume !== undefined && tooltip.volume > 0 ? 1 : 0);
 		const tipH = 56 + tipCount * 22;
 		const margin = 12;
 		const right = tooltip.x + margin + tipW > w;
@@ -223,32 +243,166 @@
 		}, 1500);
 	}
 
-	async function load() {
+	// Turn an API failure (HTTP status + body) into a human-readable panel.
+	// The server uses SvelteKit's error(), so the body is usually {"message":"…"}.
+	function describeError(status: number, raw: string): LoadError {
+		let msg = raw.trim();
+		try {
+			const parsed = JSON.parse(raw);
+			if (parsed && typeof parsed.message === 'string') msg = parsed.message.trim();
+		} catch {
+			/* not JSON — fall back to the raw text */
+		}
+
+		if (/no overlapping bars/i.test(msg)) {
+			return {
+				title: 'No overlapping history',
+				detail:
+					'These symbols don’t share enough common trading days over this range. Try a longer range, or remove one of them.',
+				retryable: false
+			};
+		}
+		if (status === 429) {
+			return {
+				title: 'Too many requests',
+				detail:
+					'You’ve sent a lot of requests in a short time. Wait a few seconds, then try again.',
+				retryable: true
+			};
+		}
+		if (status === 400) {
+			return {
+				title: 'Check your selection',
+				detail: msg || 'One of the selected symbols isn’t supported.',
+				retryable: false
+			};
+		}
+		if (status >= 500) {
+			return {
+				title: 'Couldn’t reach the data provider',
+				detail:
+					'The market-data source didn’t respond. This is usually temporary, try again in a moment.',
+				retryable: true
+			};
+		}
+		return {
+			title: 'Something went wrong',
+			detail: msg || 'An unexpected error occurred. Please try again.',
+			retryable: true
+		};
+	}
+
+	async function load(opts: { background?: boolean } = {}) {
+		const { background = false } = opts;
 		if (stocks.length === 0) {
-			error = 'Add at least one stock';
+			data = null;
+			loadError = null;
+			refreshFailed = false;
 			return;
 		}
-		loading = true;
-		error = null;
+		// Every request gets a monotonic id; only the latest one is allowed to
+		// commit its result, so a slow in-flight request can't overwrite the chart
+		// with stale data after the selection has already moved on.
+		const seq = ++loadSeq;
+		inFlight++;
+		// Foreground loads show the spinner and clear prior state. Background
+		// refreshes are silent and must never blow away valid data on failure.
+		if (!background) {
+			loading = true;
+			loadError = null;
+			refreshFailed = false;
+		}
 		try {
 			const u = new URL('/api/history-multi', window.location.origin);
 			u.searchParams.set('stocks', stocks.join(','));
 			u.searchParams.set('compares', compares.join(','));
 			u.searchParams.set('range', range);
 			const r = await fetch(u);
+			if (seq !== loadSeq) return; // superseded by a newer request
 			if (!r.ok) {
-				const txt = await r.text();
-				throw new Error(txt || `request failed (${r.status})`);
+				if (background) {
+					refreshFailed = true;
+					return;
+				}
+				// Read the body before touching state, then re-check: a newer request
+				// can finish successfully while this error body streams in, and we must
+				// not erase its result with a stale failure.
+				const body = await r.text();
+				if (seq !== loadSeq) return;
+				loadError = describeError(r.status, body);
+				data = null;
+				return;
 			}
-			data = (await r.json()) as MultiResponse;
+			const next = (await r.json()) as MultiResponse;
+			if (seq !== loadSeq) return; // superseded while the body streamed in
+			data = next;
+			refreshFailed = false;
 			renderChart();
 			persistSelection();
 			syncUrl();
-		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
-			data = null;
+		} catch {
+			if (seq !== loadSeq) return;
+			if (background) {
+				refreshFailed = true;
+			} else {
+				loadError = {
+					title: 'Connection problem',
+					detail: 'Couldn’t reach the server. Check your connection and try again.',
+					retryable: true
+				};
+				data = null;
+			}
 		} finally {
-			loading = false;
+			inFlight--;
+			if (seq === loadSeq) {
+				// Stamp completion, not start: the API caches the response when it
+				// lands, so timing the next poll from here avoids re-fetching a
+				// still-cached payload and roughly doubling the effective staleness.
+				lastLoadAt = Date.now();
+				if (!background) loading = false;
+				// Reset the poll clock on every completed load (manual, selection, or
+				// background) so the next auto-refresh is always a full interval later.
+				scheduleAutoRefresh();
+			}
+		}
+	}
+
+	function clearRefreshTimer() {
+		if (refreshTimer) {
+			clearTimeout(refreshTimer);
+			refreshTimer = null;
+		}
+	}
+
+	// Schedule the next background refresh `delay` ms out. Driven from load()'s
+	// finally (so the clock runs from each load's completion) and from foregrounding
+	// (to resume polling). Self-rescheduling keeps a steady cadence without a fixed
+	// interval drifting against request latency, and only ever runs while visible.
+	function scheduleAutoRefresh(delay = AUTO_REFRESH_MS) {
+		clearRefreshTimer();
+		if (!browser || document.visibilityState !== 'visible') return;
+		refreshTimer = setTimeout(() => {
+			if (document.visibilityState === 'visible' && inFlight === 0) {
+				void load({ background: true }); // its finally schedules the next poll
+			} else {
+				scheduleAutoRefresh(); // busy or hidden right now — try again later
+			}
+		}, delay);
+	}
+
+	function handleVisibilityChange() {
+		if (document.visibilityState === 'visible') {
+			const elapsed = Date.now() - lastLoadAt;
+			if (inFlight === 0 && elapsed >= AUTO_REFRESH_MS) {
+				// Missed at least one cycle while hidden — refresh now; its finally
+				// reschedules the next poll.
+				void load({ background: true });
+			} else {
+				// Resume polling for whatever is left of the current cycle.
+				scheduleAutoRefresh(Math.max(0, AUTO_REFRESH_MS - elapsed));
+			}
+		} else {
+			clearRefreshTimer();
 		}
 	}
 
@@ -378,7 +532,7 @@
 		try {
 			// A shared link (?stocks=…&compares=…&range=…) wins over saved local state.
 			const fromUrl = parseSelectionParams(new URLSearchParams(window.location.search));
-			const stored = fromUrl ?? parseSelection(localStorage.getItem(SELECTION_STORAGE_KEY));
+			const stored = fromUrl ?? loadStoredSelection(localStorage);
 			if (stored) {
 				stocks = stored.stocks;
 				compares = stored.compares;
@@ -391,7 +545,8 @@
 		tooltipUnsub = subscribeTooltip(handles, chartEl, getAnchorSymbol, (p) => {
 			tooltip = p;
 		});
-		void load();
+		void load(); // its finally schedules the first auto-refresh
+		document.addEventListener('visibilitychange', handleVisibilityChange);
 	});
 
 	$effect(() => {
@@ -407,6 +562,8 @@
 		tooltipUnsub?.();
 		handles?.dispose();
 		theme.destroy();
+		clearRefreshTimer();
+		if (browser) document.removeEventListener('visibilitychange', handleVisibilityChange);
 		if (shareTimer) clearTimeout(shareTimer);
 	});
 
@@ -414,12 +571,16 @@
 </script>
 
 <svelte:head>
-	<title>Stock Compare</title>
+	<title>Lift</title>
 	<meta name="description" content="Compare stocks vs benchmarks on normalized return + volume" />
 </svelte:head>
 
 <div class="flex min-h-screen flex-col">
 	<header class="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
+		<a href="/" aria-label="Lift home" class="mr-1 inline-flex shrink-0 items-center">
+			<Logo class="h-5 w-auto text-(--color-foreground)" />
+		</a>
+
 		<div class="flex flex-wrap items-center gap-1.5">
 			{#each stocks as s (s)}
 				<span
@@ -440,7 +601,7 @@
 						class={cn(
 							'inline-flex h-5 w-5 items-center justify-center rounded-full transition-colors',
 							'text-(--color-muted-foreground) hover:bg-(--color-accent) hover:text-(--color-foreground)',
-							'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent'
+							'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent'
 						)}
 					>
 						<svg
@@ -474,7 +635,7 @@
 						'bg-(--color-card) text-(--color-card-foreground) placeholder:text-(--color-muted-foreground)',
 						'border-dashed border-(--color-input) hover:border-(--color-muted-foreground)/60',
 						'focus:border-(--color-ring) focus:outline-none',
-						'disabled:opacity-50 disabled:cursor-not-allowed',
+						'disabled:cursor-not-allowed disabled:opacity-50',
 						stockInputError && 'border-(--color-destructive)'
 					)}
 				/>
@@ -492,9 +653,7 @@
 						{lookupName}
 					</div>
 				{:else if lookupStatus === 'notfound'}
-					<div
-						class="absolute top-full left-2.5 mt-1 text-[11px] text-(--color-destructive)"
-					>
+					<div class="absolute top-full left-2.5 mt-1 text-[11px] text-(--color-destructive)">
 						Not found
 					</div>
 				{/if}
@@ -581,10 +740,9 @@
 						stroke-linejoin="round"
 						aria-hidden="true"
 					>
-						<circle cx="18" cy="5" r="3" />
-						<circle cx="6" cy="12" r="3" />
-						<circle cx="18" cy="19" r="3" />
-						<path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" />
+						<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+						<polyline points="16 6 12 2 8 6" />
+						<line x1="12" x2="12" y1="2" y2="15" />
 					</svg>
 					Share
 				{/if}
@@ -599,172 +757,20 @@
 				/>
 			{/if}
 
-			<button
-				type="button"
-				title="Reset to defaults"
-				onclick={resetSelection}
-				class={cn(
-					'inline-flex h-9 items-center justify-center rounded-full border px-4 text-sm font-medium',
-					'bg-(--color-card) text-(--color-card-foreground) hover:bg-(--color-muted)',
-					'border-(--color-input) transition-colors',
-					'focus:border-(--color-ring) focus:outline-none'
-				)}
-			>
-				Reset
-			</button>
-
-			<button
-				type="button"
-				aria-label={loading ? 'Loading' : 'Refresh'}
-				title={loading ? 'Loading…' : 'Refresh'}
-				onclick={() => void load()}
-				class={cn(
-					'inline-flex h-9 w-9 items-center justify-center rounded-full border text-sm',
-					'bg-(--color-card) text-(--color-card-foreground) hover:bg-(--color-muted)',
-					'border-(--color-input) disabled:opacity-50 transition-colors',
-					'focus:border-(--color-ring) focus:outline-none'
-				)}
-				disabled={loading}
-			>
-				<svg
-					viewBox="0 0 24 24"
-					class={cn('h-4 w-4', loading && 'animate-spin')}
-					fill="none"
-					stroke="currentColor"
-					stroke-width="1.75"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					aria-hidden="true"
-				>
-					<path d="M21 12a9 9 0 1 1-3.51-7.13" />
-					<path d="M21 4v5h-5" />
-				</svg>
-			</button>
-
-			<a
-				href="/docs"
-				aria-label="Docs"
-				title="Docs"
-				class={cn(
-					'ml-2 inline-flex h-9 w-9 items-center justify-center rounded-full border text-sm',
-					'bg-(--color-card) text-(--color-card-foreground) hover:bg-(--color-muted)',
-					'border-(--color-input) transition-colors',
-					'focus:border-(--color-ring) focus:outline-none'
-				)}
-			>
-				<svg
-					viewBox="0 0 24 24"
-					class="h-4 w-4"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="1.75"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					aria-hidden="true"
-				>
-					<circle cx="12" cy="12" r="9" />
-					<path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.5-2.5 2-2.5 3.5" />
-					<circle cx="12" cy="17" r="0.6" fill="currentColor" />
-				</svg>
-			</a>
-
-			<div
-				class="inline-flex items-center gap-0.5 rounded-full border p-0.5"
-				style="border-color: var(--color-border)"
-				role="radiogroup"
-				aria-label="Theme"
-			>
-				{#each themeOptions as m (m)}
-					<button
-						type="button"
-						role="radio"
-						aria-checked={theme.mode === m}
-						aria-label={m}
-						title={m}
-						class={cn(
-							'inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors',
-							theme.mode === m
-								? 'bg-(--color-accent) text-(--color-foreground)'
-								: 'text-(--color-muted-foreground) hover:bg-(--color-accent) hover:text-(--color-foreground)'
-						)}
-						onclick={(e) => {
-							theme.setMode(m);
-							(e.currentTarget as HTMLButtonElement).blur();
-						}}
-					>
-						{#if m === 'system'}
-							<svg
-								viewBox="0 0 24 24"
-								class="h-4 w-4"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="1.75"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								aria-hidden="true"
-							>
-								<rect x="3" y="4" width="18" height="12" rx="2" />
-								<path d="M8 20h8M12 16v4" />
-							</svg>
-						{:else if m === 'light'}
-							<svg
-								viewBox="0 0 24 24"
-								class="h-4 w-4"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="1.75"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								aria-hidden="true"
-							>
-								<circle cx="12" cy="12" r="4" />
-								<path
-									d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
-								/>
-							</svg>
-						{:else}
-							<svg
-								viewBox="0 0 24 24"
-								class="h-4 w-4"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="1.75"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								aria-hidden="true"
-							>
-								<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-							</svg>
-						{/if}
-					</button>
-				{/each}
-			</div>
+			<OverflowMenu onReset={resetSelection} {theme} {themeOptions} />
 		</div>
 	</header>
 
 	<section class="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-4 sm:px-6">
 		<div class="flex flex-wrap items-baseline gap-x-6 gap-y-2">
-			{#if error}
-				<div
-					class="rounded-[var(--radius)] border px-4 py-3 text-sm"
-					style="border-color: var(--color-destructive); color: var(--color-destructive); background: color-mix(in srgb, var(--color-destructive) 8%, transparent)"
-				>
-					{error}
-				</div>
-			{:else if !data}
-				<div class="text-sm text-(--color-muted-foreground)">
-					{loading ? 'Loading…' : 'Add a ticker to begin.'}
-				</div>
-			{:else}
+			{#if data}
 				{#each data.series as s (s.symbol)}
 					{@const cls = pctClass(s.summary.pctChange)}
 					<div>
 						<div class={cn('text-2xl font-semibold tracking-tight tabular-nums', cls)}>
 							{formatPct(s.summary.pctChange, 1)}
 						</div>
-						<div
-							class="mt-0.5 flex items-center gap-1.5 text-xs text-(--color-muted-foreground)"
-						>
+						<div class="mt-0.5 flex items-center gap-1.5 text-xs text-(--color-muted-foreground)">
 							<span
 								class="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
 								style="background: {colorFor(s.symbol)}"
@@ -776,11 +782,7 @@
 			{/if}
 		</div>
 
-		<div
-			class="ml-auto inline-flex items-center gap-1"
-			role="radiogroup"
-			aria-label="Time range"
-		>
+		<div class="ml-auto inline-flex items-center gap-1" role="radiogroup" aria-label="Time range">
 			{#each RANGES as r (r)}
 				<button
 					type="button"
@@ -811,6 +813,119 @@
 				class="absolute inset-0 w-full overflow-hidden rounded-[0.75rem] border bg-(--color-card)"
 				style="border-color: var(--color-border)"
 			></div>
+			{#if refreshFailed && data}
+				<div
+					class="absolute top-2 right-2 z-10 inline-flex items-center gap-1.5 rounded-full border bg-(--color-card) px-3 py-1 text-xs text-(--color-muted-foreground) shadow-sm"
+					style="border-color: var(--color-border)"
+					role="status"
+				>
+					<svg
+						viewBox="0 0 24 24"
+						class="h-3.5 w-3.5 shrink-0"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.75"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true"
+					>
+						<path
+							d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+						/>
+						<line x1="12" y1="9" x2="12" y2="13" />
+						<line x1="12" y1="17" x2="12.01" y2="17" />
+					</svg>
+					<span>Couldn’t refresh — showing last update</span>
+				</div>
+			{/if}
+			{#if loadError || !data}
+				<div
+					class="absolute inset-0 z-20 flex items-center justify-center overflow-hidden rounded-[0.75rem] border bg-(--color-card) px-6"
+					style="border-color: var(--color-border)"
+				>
+					{#if loadError}
+						<div class="flex max-w-sm flex-col items-center gap-3 text-center">
+							<div
+								class="flex h-15 w-15 items-center justify-center rounded-full"
+								style="color: var(--color-destructive); background: color-mix(in srgb, var(--color-destructive) 12%, transparent)"
+							>
+								<svg
+									width="30"
+									height="30"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="1.75"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									aria-hidden="true"
+								>
+									<path
+										d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+									/>
+									<line x1="12" y1="9" x2="12" y2="13" />
+									<line x1="12" y1="17" x2="12.01" y2="17" />
+								</svg>
+							</div>
+							<div class="text-base font-medium text-(--color-foreground)">
+								{loadError.title}
+							</div>
+							<p class="text-sm leading-relaxed text-(--color-muted-foreground)">
+								{loadError.detail}
+							</p>
+							{#if loadError.retryable}
+								<button
+									type="button"
+									onclick={() => void load()}
+									disabled={loading}
+									class="mt-1 inline-flex h-9 items-center gap-2 rounded-full border px-4 text-sm font-medium transition-colors hover:bg-(--color-accent) disabled:opacity-60"
+									style="border-color: var(--color-border)"
+								>
+									<svg
+										class={loading ? 'animate-spin' : ''}
+										width="15"
+										height="15"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="1.75"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										aria-hidden="true"
+									>
+										<path d="M21 12a9 9 0 1 1-2.64-6.36" />
+										<path d="M21 3v6h-6" />
+									</svg>
+									{loading ? 'Retrying…' : 'Try again'}
+								</button>
+							{/if}
+						</div>
+					{:else}
+						<div
+							class="flex flex-col items-center gap-2 text-center text-sm text-(--color-muted-foreground)"
+						>
+							{#if loading}
+								<svg
+									class="animate-spin"
+									width="18"
+									height="18"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									aria-hidden="true"
+								>
+									<path d="M21 12a9 9 0 1 1-6.219-8.56" />
+								</svg>
+								<span>Loading…</span>
+							{:else}
+								<span>Add a ticker to begin.</span>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			{/if}
 			{#if tooltip && data}
 				<div
 					class="pointer-events-none absolute z-10 w-[220px] rounded-[var(--radius)] border bg-(--color-popover) p-3 text-xs shadow-md"
@@ -829,7 +944,7 @@
 									></span>
 									<span class="text-(--color-foreground)">{v.symbol}</span>
 								</span>
-								<span class={cn('tabular-nums font-medium', pctClass(v.value))}>
+								<span class={cn('font-medium tabular-nums', pctClass(v.value))}>
 									{v.value !== undefined ? formatPct(v.value) : '—'}
 								</span>
 							</div>
@@ -842,7 +957,7 @@
 								<span class="text-(--color-muted-foreground)">
 									Volume · {data.primaryVolume.symbol}
 								</span>
-								<span class="tabular-nums text-(--color-foreground)">
+								<span class="text-(--color-foreground) tabular-nums">
 									{formatVolume(tooltip.volume)}
 								</span>
 							</div>

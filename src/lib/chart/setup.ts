@@ -102,7 +102,7 @@ export function readTheme(root: HTMLElement = document.documentElement): ChartTh
 		fg: cs.getPropertyValue('--color-foreground').trim() || '#111111',
 		grid: cs.getPropertyValue('--color-grid').trim() || '#e5e5e5',
 		muted: cs.getPropertyValue('--color-muted-foreground').trim() || '#888888',
-		volumeColor: cs.getPropertyValue('--color-volume').trim() || 'rgba(14, 165, 233, 0.45)'
+		volumeColor: cs.getPropertyValue('--color-volume').trim() || 'rgba(25, 204, 177, 0.45)'
 	};
 }
 

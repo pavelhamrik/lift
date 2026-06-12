@@ -1,4 +1,4 @@
-# stock-compare — build plan
+# Lift — build plan
 
 A small web app to compare a stock against a benchmark (default: S&P 500) on
 price, with the target's volume shown in a sub-pane. Local-first; will
