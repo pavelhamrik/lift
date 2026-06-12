@@ -67,7 +67,7 @@ type YahooChartApiResponse = {
 	};
 };
 
-const defaultFetch: FetchChart = async (symbol, opts) => {
+export const defaultFetch: FetchChart = async (symbol, opts) => {
 	const url = new URL(`${YAHOO_CHART_BASE}/${encodeURIComponent(symbol)}`);
 	url.searchParams.set('period1', String(Math.floor(opts.period1.getTime() / 1000)));
 	url.searchParams.set('period2', String(Math.floor(opts.period2.getTime() / 1000)));

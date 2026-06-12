@@ -29,10 +29,34 @@ index/ETF on a single normalized-percent chart, with the target's volume in a su
 
 ```
 npm install
-npm run dev
+npm run dev          # live data from Yahoo
+npm run dev:static   # synthetic data, never touches Yahoo
 ```
 
 Then open the URL Vite prints. Type a ticker, pick a benchmark, toggle 1D / 1Y.
+
+### `dev:static` — Yahoo-independent local data
+
+Yahoo rate-limits residential/VPN egress IPs (every chart request 429s, stickily),
+which makes plain `npm run dev` painful locally. `npm run dev:static`
+(`STOCK_FIXTURES=1 vite dev`) serves **synthetic** price data for any symbol and
+range — instant, deterministic, and with **zero** Yahoo traffic.
+
+Scope and caveats:
+
+- **Yahoo-independent, not fully offline.** Only the upstream price/lookup bytes
+  are faked; an authenticated layout still talks to Supabase as usual.
+- **Real code path.** The synthetic bytes feed the same `makeYahooProvider` /
+  `buildResultFromChart` pipeline, so windowing, adjusted-close selection,
+  scope mapping, and intersection are all exercised for real.
+- **Intraday parity.** Intraday ranges (1D / 5D) emit bars only inside each
+  symbol's own exchange session, so an out-of-session window (e.g. 1D before the
+  US open, or a cross-market intraday compare) can legitimately return empty —
+  exactly as live would. Daily and longer ranges always populate.
+- **Build modes always use the real provider.** `npm run preview` and
+  `wrangler dev` run a *production* build, where the fixtures are tree-shaken out
+  entirely — so they hit real Yahoo regardless of the env var. The static toggle
+  is `vite dev` only.
 
 The API endpoint is `GET /api/history?symbol=AAPL&benchmark=SPY&range=1Y`. It
 canonicalizes the request, validates against the symbol regex and benchmark
