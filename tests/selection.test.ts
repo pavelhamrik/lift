@@ -3,8 +3,27 @@ import {
 	parseSelection,
 	parseSelectionParams,
 	selectionToSearchParams,
-	serializeSelection
+	serializeSelection,
+	loadStoredSelection,
+	SELECTION_STORAGE_KEY
 } from '../src/lib/selection.js';
+
+const LEGACY_KEY = 'stock-compare:selection';
+
+/** Minimal in-memory Storage for migration tests. */
+function makeStorage(initial: Record<string, string> = {}): Storage {
+	const map = new Map<string, string>(Object.entries(initial));
+	return {
+		get length() {
+			return map.size;
+		},
+		clear: () => map.clear(),
+		getItem: (k: string) => (map.has(k) ? (map.get(k) as string) : null),
+		key: (i: number) => Array.from(map.keys())[i] ?? null,
+		removeItem: (k: string) => void map.delete(k),
+		setItem: (k: string, v: string) => void map.set(k, String(v))
+	};
+}
 
 describe('parseSelection (multi)', () => {
 	it('round-trips a valid multi selection', () => {
@@ -107,6 +126,63 @@ describe('parseSelection (multi)', () => {
 	});
 });
 
+describe('loadStoredSelection (key migration)', () => {
+	const current = { stocks: ['NVDA'], compares: ['QQQ' as const], range: '6M' as const };
+	const legacy = { stocks: ['AAPL'], compares: ['SPY' as const], range: '1Y' as const };
+
+	it('returns the current-key selection and ignores the legacy key', () => {
+		const storage = makeStorage({
+			[SELECTION_STORAGE_KEY]: serializeSelection(current),
+			[LEGACY_KEY]: serializeSelection(legacy)
+		});
+		expect(loadStoredSelection(storage)).toEqual(current);
+		// Current wins; the legacy key is left untouched (not consumed).
+		expect(parseSelection(storage.getItem(LEGACY_KEY))).toEqual(legacy);
+	});
+
+	it('migrates the legacy key forward when no current key exists', () => {
+		const storage = makeStorage({ [LEGACY_KEY]: serializeSelection(legacy) });
+		expect(loadStoredSelection(storage)).toEqual(legacy);
+		// Copied to the current key...
+		expect(parseSelection(storage.getItem(SELECTION_STORAGE_KEY))).toEqual(legacy);
+		// ...and the legacy key removed so the migration runs only once.
+		expect(storage.getItem(LEGACY_KEY)).toBeNull();
+	});
+
+	it('returns null and writes nothing when neither key is present', () => {
+		const storage = makeStorage();
+		expect(loadStoredSelection(storage)).toBeNull();
+		expect(storage.getItem(SELECTION_STORAGE_KEY)).toBeNull();
+		expect(storage.getItem(LEGACY_KEY)).toBeNull();
+	});
+
+	it('does not migrate an unparseable legacy value', () => {
+		const storage = makeStorage({ [LEGACY_KEY]: '{not json' });
+		expect(loadStoredSelection(storage)).toBeNull();
+		expect(storage.getItem(SELECTION_STORAGE_KEY)).toBeNull();
+		// A malformed legacy value is left as-is rather than silently dropped.
+		expect(storage.getItem(LEGACY_KEY)).toBe('{not json');
+	});
+
+	it('still returns the legacy selection when the migration write throws', () => {
+		const storage = makeStorage({ [LEGACY_KEY]: serializeSelection(legacy) });
+		let removed = false;
+		storage.setItem = () => {
+			throw new DOMException('QuotaExceededError');
+		};
+		const origRemove = storage.removeItem.bind(storage);
+		storage.removeItem = (k: string) => {
+			removed = true;
+			origRemove(k);
+		};
+		// The valid selection survives a write failure...
+		expect(loadStoredSelection(storage)).toEqual(legacy);
+		// ...and the legacy key is NOT removed, so the migration can retry later.
+		expect(removed).toBe(false);
+		expect(parseSelection(storage.getItem(LEGACY_KEY))).toEqual(legacy);
+	});
+});
+
 describe('selection URL params (share links)', () => {
 	it('round-trips a selection through search params', () => {
 		const s = {
@@ -152,6 +228,8 @@ describe('selection URL params (share links)', () => {
 	});
 
 	it('returns null when no valid stocks survive', () => {
-		expect(parseSelectionParams(new URLSearchParams('stocks=AA!&compares=SPY&range=1Y'))).toBeNull();
+		expect(
+			parseSelectionParams(new URLSearchParams('stocks=AA!&compares=SPY&range=1Y'))
+		).toBeNull();
 	});
 });

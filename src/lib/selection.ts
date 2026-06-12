@@ -1,7 +1,9 @@
 import { isBenchmarkSymbol, type BenchmarkSymbol } from './benchmarks.js';
 import { RANGES, type Range } from './providers/types.js';
 
-export const SELECTION_STORAGE_KEY = 'stock-compare:selection';
+export const SELECTION_STORAGE_KEY = 'lift:selection';
+/** Pre-rename key; read once and migrated forward so saved state survives. */
+const LEGACY_SELECTION_STORAGE_KEY = 'stock-compare:selection';
 
 export type StoredSelection = {
 	stocks: string[];
@@ -88,6 +90,30 @@ export function parseSelection(raw: string | null): StoredSelection | null {
 
 export function serializeSelection(s: StoredSelection): string {
 	return JSON.stringify({ stocks: s.stocks, compares: s.compares, range: s.range });
+}
+
+/**
+ * Load the saved selection, falling back to (and migrating from) the
+ * pre-rename `stock-compare:selection` key so existing users keep their state.
+ */
+export function loadStoredSelection(storage: Storage): StoredSelection | null {
+	const current = parseSelection(storage.getItem(SELECTION_STORAGE_KEY));
+	if (current) return current;
+
+	const legacy = parseSelection(storage.getItem(LEGACY_SELECTION_STORAGE_KEY));
+	if (legacy) {
+		// Best-effort migration: a failed storage write (quota, disabled storage)
+		// must never cost the user their valid selection, so we always return
+		// `legacy` regardless. Remove the old key only once the new key is written,
+		// so a crash between the two doesn't lose the value.
+		try {
+			storage.setItem(SELECTION_STORAGE_KEY, serializeSelection(legacy));
+			storage.removeItem(LEGACY_SELECTION_STORAGE_KEY);
+		} catch {
+			/* keep the legacy key; the migration retries on the next load */
+		}
+	}
+	return legacy;
 }
 
 /** Parse a selection from URL query params (?stocks=AAPL,MSFT&compares=SPY&range=1Y). */

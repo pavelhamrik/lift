@@ -4,11 +4,16 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="text-scale" content="scale" />
+		<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+		<link rel="icon" href="/favicon.png" sizes="16x16" type="image/png" />
+		<link rel="icon" href="/favicon@2x.png" sizes="32x32" type="image/png" />
+		<link rel="apple-touch-icon" href="/favicon@4x.png" />
 		<script>
 			(function () {
 				try {
 					var stored = localStorage.getItem('theme-mode');
-					var mode = stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
+					var mode =
+						stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
 					var dark =
 						mode === 'dark' ||
 						(mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);

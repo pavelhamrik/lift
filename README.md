@@ -1,4 +1,4 @@
-# stock-compare
+# Lift
 
 A small SvelteKit web app that overlays a US-listed stock against a benchmark
 index/ETF on a single normalized-percent chart, with the target's volume in a sub-pane.
