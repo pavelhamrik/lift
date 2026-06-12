@@ -66,6 +66,11 @@
 	let loading = $state(false);
 	type LoadError = { title: string; detail: string; retryable: boolean };
 	let loadError = $state<LoadError | null>(null);
+	// Bumped per request so only the most recent load commits its result.
+	let loadSeq = 0;
+	// Set when a background auto-refresh fails; surfaced as a non-blocking notice
+	// while the last successful data stays on screen.
+	let refreshFailed = $state(false);
 	let data = $state<MultiResponse | null>(null);
 	let shareCopied = $state(false);
 	let shareTimer: ReturnType<typeof setTimeout> | null = null;
@@ -284,39 +289,63 @@
 		};
 	}
 
-	async function load() {
+	async function load(opts: { background?: boolean } = {}) {
+		const { background = false } = opts;
 		if (stocks.length === 0) {
 			data = null;
 			loadError = null;
+			refreshFailed = false;
 			return;
 		}
+		// Every request gets a monotonic id; only the latest one is allowed to
+		// commit its result, so a slow in-flight request can't overwrite the chart
+		// with stale data after the selection has already moved on.
+		const seq = ++loadSeq;
 		lastLoadAt = Date.now();
-		loading = true;
-		loadError = null;
+		// Foreground loads show the spinner and clear prior state. Background
+		// refreshes are silent and must never blow away valid data on failure.
+		if (!background) {
+			loading = true;
+			loadError = null;
+			refreshFailed = false;
+		}
 		try {
 			const u = new URL('/api/history-multi', window.location.origin);
 			u.searchParams.set('stocks', stocks.join(','));
 			u.searchParams.set('compares', compares.join(','));
 			u.searchParams.set('range', range);
 			const r = await fetch(u);
+			if (seq !== loadSeq) return; // superseded by a newer request
 			if (!r.ok) {
-				loadError = describeError(r.status, await r.text());
-				data = null;
+				if (background) {
+					refreshFailed = true;
+				} else {
+					loadError = describeError(r.status, await r.text());
+					data = null;
+				}
 				return;
 			}
-			data = (await r.json()) as MultiResponse;
+			const next = (await r.json()) as MultiResponse;
+			if (seq !== loadSeq) return; // superseded while the body streamed in
+			data = next;
+			refreshFailed = false;
 			renderChart();
 			persistSelection();
 			syncUrl();
 		} catch {
-			loadError = {
-				title: 'Connection problem',
-				detail: 'Couldn’t reach the server. Check your connection and try again.',
-				retryable: true
-			};
-			data = null;
+			if (seq !== loadSeq) return;
+			if (background) {
+				refreshFailed = true;
+			} else {
+				loadError = {
+					title: 'Connection problem',
+					detail: 'Couldn’t reach the server. Check your connection and try again.',
+					retryable: true
+				};
+				data = null;
+			}
 		} finally {
-			loading = false;
+			if (seq === loadSeq && !background) loading = false;
 		}
 	}
 
@@ -332,14 +361,14 @@
 		if (!browser || document.visibilityState !== 'visible') return;
 		refreshTimer = setInterval(() => {
 			// Poll only a visible tab, and never overlap an in-flight request.
-			if (document.visibilityState === 'visible' && !loading) void load();
+			if (document.visibilityState === 'visible' && !loading) void load({ background: true });
 		}, AUTO_REFRESH_MS);
 	}
 
 	function handleVisibilityChange() {
 		if (document.visibilityState === 'visible') {
 			// Catch up on return if we skipped at least one refresh cycle while hidden.
-			if (!loading && Date.now() - lastLoadAt >= AUTO_REFRESH_MS) void load();
+			if (!loading && Date.now() - lastLoadAt >= AUTO_REFRESH_MS) void load({ background: true });
 			startAutoRefresh();
 		} else {
 			stopAutoRefresh();
@@ -760,6 +789,31 @@
 				class="absolute inset-0 w-full overflow-hidden rounded-[0.75rem] border bg-(--color-card)"
 				style="border-color: var(--color-border)"
 			></div>
+			{#if refreshFailed && data}
+				<div
+					class="absolute top-2 right-2 z-10 inline-flex items-center gap-1.5 rounded-full border bg-(--color-card) px-3 py-1 text-xs text-(--color-muted-foreground) shadow-sm"
+					style="border-color: var(--color-border)"
+					role="status"
+				>
+					<svg
+						viewBox="0 0 24 24"
+						class="h-3.5 w-3.5 shrink-0"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.75"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true"
+					>
+						<path
+							d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+						/>
+						<line x1="12" y1="9" x2="12" y2="13" />
+						<line x1="12" y1="17" x2="12.01" y2="17" />
+					</svg>
+					<span>Couldn’t refresh — showing last update</span>
+				</div>
+			{/if}
 			{#if loadError || !data}
 				<div
 					class="absolute inset-0 z-20 flex items-center justify-center overflow-hidden rounded-[0.75rem] border bg-(--color-card) px-6"

@@ -118,29 +118,25 @@
 				>
 					Theme
 				</span>
-				<div
+				<DropdownMenu.RadioGroup
+					value={theme.mode}
+					onValueChange={(v) => theme.setMode(v as ThemeMode)}
 					class="inline-flex items-center gap-0.5 rounded-full border p-0.5"
 					style="border-color: var(--color-border)"
-					role="radiogroup"
 					aria-label="Theme"
 				>
 					{#each themeOptions as m (m)}
-						<button
-							type="button"
-							role="radio"
-							aria-checked={theme.mode === m}
+						<DropdownMenu.RadioItem
+							value={m}
+							closeOnSelect={false}
 							aria-label={m}
 							title={m}
 							class={cn(
-								'inline-flex h-7 w-7 items-center justify-center rounded-full transition-colors',
-								theme.mode === m
-									? 'bg-(--color-accent) text-(--color-foreground)'
-									: 'text-(--color-muted-foreground) hover:bg-(--color-accent) hover:text-(--color-foreground)'
+								'inline-flex h-7 w-7 cursor-default items-center justify-center rounded-full transition-colors outline-none',
+								'text-(--color-muted-foreground)',
+								'data-[highlighted]:bg-(--color-accent) data-[highlighted]:text-(--color-foreground)',
+								'data-[state=checked]:bg-(--color-accent) data-[state=checked]:text-(--color-foreground)'
 							)}
-							onclick={(e) => {
-								theme.setMode(m);
-								(e.currentTarget as HTMLButtonElement).blur();
-							}}
 						>
 							{#if m === 'system'}
 								<svg
@@ -186,9 +182,9 @@
 									<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
 								</svg>
 							{/if}
-						</button>
+						</DropdownMenu.RadioItem>
 					{/each}
-				</div>
+				</DropdownMenu.RadioGroup>
 			</div>
 		</DropdownMenu.Content>
 	</DropdownMenu.Portal>
