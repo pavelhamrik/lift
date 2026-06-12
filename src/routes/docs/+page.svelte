@@ -3,8 +3,11 @@
 </script>
 
 <svelte:head>
-	<title>Docs · Stock Compare</title>
-	<meta name="description" content="What Stock Compare does, its limitations, and where the data comes from." />
+	<title>Docs · Lift</title>
+	<meta
+		name="description"
+		content="What Lift does, its limitations, and where the data comes from."
+	/>
 </svelte:head>
 
 <div class="mx-auto max-w-3xl px-4 py-10 sm:px-6">
@@ -27,9 +30,9 @@
 		<h2 class="mb-3 text-lg font-semibold tracking-tight">What this does</h2>
 		<div class="space-y-3 text-sm leading-relaxed text-(--color-foreground)">
 			<p>
-				Stock Compare plots one or more stocks against one or more benchmark indices on a single
-				chart. All series are normalised to percent change from the start of the selected time
-				window so they share a common y-axis regardless of price level or currency.
+				Lift plots one or more stocks against one or more benchmark indices on a single chart. All
+				series are normalised to percent change from the start of the selected time window so they
+				share a common y-axis regardless of price level or currency.
 			</p>
 			<p>
 				A volume histogram tracks the primary (first) stock on the same time axis. Switch the time
@@ -46,8 +49,8 @@
 				stocks at a time. Click the × on a chip to remove it.
 			</p>
 			<p>
-				Add comparison indices via the <strong>+ Compare</strong> dropdown — these are pulled from a
-				curated list of US, European, global, and APAC benchmarks. Up to eight at a time.
+				Add comparison indices via the <strong>+ Compare</strong> dropdown — these are pulled from a curated
+				list of US, European, global, and APAC benchmarks. Up to eight at a time.
 			</p>
 			<p>
 				The <strong>Reset</strong> button restores the default selection (AAPL + S&amp;P 500 ETF).
@@ -67,38 +70,37 @@
 				all series, including the survivors.
 			</p>
 			<p>
-				<strong>Daily bars only align to local exchange calendars.</strong> For intervals of one day
-				or longer, each bar is bucketed by the exchange's local calendar date. Cross-market mixing
-				therefore relies on those calendar dates lining up — usually they do, but the holiday point
-				above is the consequence when they don't.
+				<strong>Daily bars only align to local exchange calendars.</strong> For intervals of one day or
+				longer, each bar is bucketed by the exchange's local calendar date. Cross-market mixing therefore
+				relies on those calendar dates lining up — usually they do, but the holiday point above is the
+				consequence when they don't.
 			</p>
 			<p>
-				<strong>Return basis can be mixed.</strong> ETF benchmarks (SPY, QQQ, IWM, URTH, EEM, ACWI)
-				are dividend-adjusted total return. Index benchmarks (^GSPC, ^IXIC, ^FTSE, etc.) are
-				price-only. Stocks are dividend-adjusted whenever at least one selected benchmark is
-				total-return; otherwise they are price-only. This keeps each stock on the same basis as its
-				comparison set, but the basis is not uniform if you mix policies.
+				<strong>Return basis can be mixed.</strong> ETF benchmarks (SPY, QQQ, IWM, URTH, EEM, ACWI) are
+				dividend-adjusted total return. Index benchmarks (^GSPC, ^IXIC, ^FTSE, etc.) are price-only. Stocks
+				are dividend-adjusted whenever at least one selected benchmark is total-return; otherwise they
+				are price-only. This keeps each stock on the same basis as its comparison set, but the basis is
+				not uniform if you mix policies.
 			</p>
 			<p>
-				<strong>Intraday ranges are price-only.</strong> 1D and 5D ranges always use raw price
-				(no dividend adjustment) regardless of the benchmark policy.
+				<strong>Intraday ranges are price-only.</strong> 1D and 5D ranges always use raw price (no dividend
+				adjustment) regardless of the benchmark policy.
 			</p>
 			<p>
-				<strong>Currency is not converted.</strong> Comparisons hold up across currencies because
-				everything is shown in % change, but the per-stock "last price" shown above the chart is in
-				the security's native currency.
+				<strong>Currency is not converted.</strong> Comparisons hold up across currencies because everything
+				is shown in % change, but the per-stock "last price" shown above the chart is in the security's
+				native currency.
 			</p>
 			<p>
 				<strong>No after-hours.</strong> Pre-market and after-hours sessions are excluded.
 			</p>
 			<p>
-				<strong>Data freshness.</strong> Responses are cached for up to 60 seconds at the edge,
-				so the latest bar may lag the live market by that amount.
+				<strong>Data freshness.</strong> Responses are cached for up to 60 seconds at the edge, so the
+				latest bar may lag the live market by that amount.
 			</p>
 			<p>
-				<strong>Provider quirks.</strong> Symbol coverage and historical depth depend on what
-				Yahoo Finance returns. Some exotic tickers, recent IPOs, or delisted symbols may have
-				partial or missing data.
+				<strong>Provider quirks.</strong> Symbol coverage and historical depth depend on what Yahoo Finance
+				returns. Some exotic tickers, recent IPOs, or delisted symbols may have partial or missing data.
 			</p>
 		</div>
 	</section>
