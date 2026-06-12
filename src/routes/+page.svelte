@@ -83,7 +83,7 @@
 	// the tab comes back to the foreground after missing at least one cycle, we
 	// fetch immediately to catch up.
 	const AUTO_REFRESH_MS = 60_000;
-	let refreshTimer: ReturnType<typeof setInterval> | null = null;
+	let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastLoadAt = 0;
 
 	type LookupStatus = 'idle' | 'loading' | 'found' | 'notfound' | 'error';
@@ -305,7 +305,6 @@
 		// with stale data after the selection has already moved on.
 		const seq = ++loadSeq;
 		inFlight++;
-		lastLoadAt = Date.now();
 		// Foreground loads show the spinner and clear prior state. Background
 		// refreshes are silent and must never blow away valid data on failure.
 		if (!background) {
@@ -355,41 +354,55 @@
 			}
 		} finally {
 			inFlight--;
-			if (seq === loadSeq && !background) loading = false;
+			if (seq === loadSeq) {
+				// Stamp completion, not start: the API caches the response when it
+				// lands, so timing the next poll from here avoids re-fetching a
+				// still-cached payload and roughly doubling the effective staleness.
+				lastLoadAt = Date.now();
+				if (!background) loading = false;
+				// Reset the poll clock on every completed load (manual, selection, or
+				// background) so the next auto-refresh is always a full interval later.
+				scheduleAutoRefresh();
+			}
 		}
 	}
 
-	function stopAutoRefresh() {
+	function clearRefreshTimer() {
 		if (refreshTimer) {
-			clearInterval(refreshTimer);
+			clearTimeout(refreshTimer);
 			refreshTimer = null;
 		}
 	}
 
-	function startAutoRefresh() {
-		stopAutoRefresh();
+	// Schedule the next background refresh `delay` ms out. Driven from load()'s
+	// finally (so the clock runs from each load's completion) and from foregrounding
+	// (to resume polling). Self-rescheduling keeps a steady cadence without a fixed
+	// interval drifting against request latency, and only ever runs while visible.
+	function scheduleAutoRefresh(delay = AUTO_REFRESH_MS) {
+		clearRefreshTimer();
 		if (!browser || document.visibilityState !== 'visible') return;
-		refreshTimer = setInterval(maybeAutoRefresh, AUTO_REFRESH_MS);
-	}
-
-	// Refresh only when the tab is visible, nothing is already in flight (so slow
-	// background refreshes can't overlap), and a full interval has actually elapsed
-	// since the last load (so the fixed timer can't refetch right after a manual or
-	// selection-triggered load).
-	function maybeAutoRefresh() {
-		if (!browser || document.visibilityState !== 'visible') return;
-		if (inFlight > 0) return;
-		if (Date.now() - lastLoadAt < AUTO_REFRESH_MS) return;
-		void load({ background: true });
+		refreshTimer = setTimeout(() => {
+			if (document.visibilityState === 'visible' && inFlight === 0) {
+				void load({ background: true }); // its finally schedules the next poll
+			} else {
+				scheduleAutoRefresh(); // busy or hidden right now — try again later
+			}
+		}, delay);
 	}
 
 	function handleVisibilityChange() {
 		if (document.visibilityState === 'visible') {
-			// Catch up on return if we skipped at least one refresh cycle while hidden.
-			maybeAutoRefresh();
-			startAutoRefresh();
+			const elapsed = Date.now() - lastLoadAt;
+			if (inFlight === 0 && elapsed >= AUTO_REFRESH_MS) {
+				// Missed at least one cycle while hidden — refresh now; its finally
+				// reschedules the next poll.
+				void load({ background: true });
+			} else {
+				// Resume polling for whatever is left of the current cycle.
+				scheduleAutoRefresh(Math.max(0, AUTO_REFRESH_MS - elapsed));
+			}
 		} else {
-			stopAutoRefresh();
+			clearRefreshTimer();
 		}
 	}
 
@@ -532,9 +545,8 @@
 		tooltipUnsub = subscribeTooltip(handles, chartEl, getAnchorSymbol, (p) => {
 			tooltip = p;
 		});
-		void load();
+		void load(); // its finally schedules the first auto-refresh
 		document.addEventListener('visibilitychange', handleVisibilityChange);
-		startAutoRefresh();
 	});
 
 	$effect(() => {
@@ -550,7 +562,7 @@
 		tooltipUnsub?.();
 		handles?.dispose();
 		theme.destroy();
-		stopAutoRefresh();
+		clearRefreshTimer();
 		if (browser) document.removeEventListener('visibilitychange', handleVisibilityChange);
 		if (shareTimer) clearTimeout(shareTimer);
 	});

@@ -53,8 +53,10 @@
 				list of US, European, global, and APAC benchmarks. Up to eight at a time.
 			</p>
 			<p>
-				The <strong>Reset</strong> button restores the default selection (AAPL + S&amp;P 500 ETF).
-				<strong>Refresh</strong> re-fetches the current selection.
+				The <strong>⋯</strong> menu (top right) holds <strong>Reset to defaults</strong> — which restores
+				the default selection (AAPL + S&amp;P 500 ETF) — along with a link to these docs and the light/dark
+				theme toggle. The chart re-fetches your selection automatically about once a minute while the
+				tab is open, so there's no manual refresh.
 			</p>
 		</div>
 	</section>
