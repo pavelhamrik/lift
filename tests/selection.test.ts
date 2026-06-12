@@ -163,6 +163,24 @@ describe('loadStoredSelection (key migration)', () => {
 		// A malformed legacy value is left as-is rather than silently dropped.
 		expect(storage.getItem(LEGACY_KEY)).toBe('{not json');
 	});
+
+	it('still returns the legacy selection when the migration write throws', () => {
+		const storage = makeStorage({ [LEGACY_KEY]: serializeSelection(legacy) });
+		let removed = false;
+		storage.setItem = () => {
+			throw new DOMException('QuotaExceededError');
+		};
+		const origRemove = storage.removeItem.bind(storage);
+		storage.removeItem = (k: string) => {
+			removed = true;
+			origRemove(k);
+		};
+		// The valid selection survives a write failure...
+		expect(loadStoredSelection(storage)).toEqual(legacy);
+		// ...and the legacy key is NOT removed, so the migration can retry later.
+		expect(removed).toBe(false);
+		expect(parseSelection(storage.getItem(LEGACY_KEY))).toEqual(legacy);
+	});
 });
 
 describe('selection URL params (share links)', () => {

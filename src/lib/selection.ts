@@ -102,8 +102,16 @@ export function loadStoredSelection(storage: Storage): StoredSelection | null {
 
 	const legacy = parseSelection(storage.getItem(LEGACY_SELECTION_STORAGE_KEY));
 	if (legacy) {
-		storage.setItem(SELECTION_STORAGE_KEY, serializeSelection(legacy));
-		storage.removeItem(LEGACY_SELECTION_STORAGE_KEY);
+		// Best-effort migration: a failed storage write (quota, disabled storage)
+		// must never cost the user their valid selection, so we always return
+		// `legacy` regardless. Remove the old key only once the new key is written,
+		// so a crash between the two doesn't lose the value.
+		try {
+			storage.setItem(SELECTION_STORAGE_KEY, serializeSelection(legacy));
+			storage.removeItem(LEGACY_SELECTION_STORAGE_KEY);
+		} catch {
+			/* keep the legacy key; the migration retries on the next load */
+		}
 	}
 	return legacy;
 }

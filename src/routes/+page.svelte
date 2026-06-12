@@ -68,6 +68,9 @@
 	let loadError = $state<LoadError | null>(null);
 	// Bumped per request so only the most recent load commits its result.
 	let loadSeq = 0;
+	// Count of requests currently awaiting the network (foreground + background);
+	// gates auto-refresh so it never overlaps an in-flight load.
+	let inFlight = 0;
 	// Set when a background auto-refresh fails; surfaced as a non-blocking notice
 	// while the last successful data stays on screen.
 	let refreshFailed = $state(false);
@@ -301,6 +304,7 @@
 		// commit its result, so a slow in-flight request can't overwrite the chart
 		// with stale data after the selection has already moved on.
 		const seq = ++loadSeq;
+		inFlight++;
 		lastLoadAt = Date.now();
 		// Foreground loads show the spinner and clear prior state. Background
 		// refreshes are silent and must never blow away valid data on failure.
@@ -319,10 +323,15 @@
 			if (!r.ok) {
 				if (background) {
 					refreshFailed = true;
-				} else {
-					loadError = describeError(r.status, await r.text());
-					data = null;
+					return;
 				}
+				// Read the body before touching state, then re-check: a newer request
+				// can finish successfully while this error body streams in, and we must
+				// not erase its result with a stale failure.
+				const body = await r.text();
+				if (seq !== loadSeq) return;
+				loadError = describeError(r.status, body);
+				data = null;
 				return;
 			}
 			const next = (await r.json()) as MultiResponse;
@@ -345,6 +354,7 @@
 				data = null;
 			}
 		} finally {
+			inFlight--;
 			if (seq === loadSeq && !background) loading = false;
 		}
 	}
@@ -359,16 +369,24 @@
 	function startAutoRefresh() {
 		stopAutoRefresh();
 		if (!browser || document.visibilityState !== 'visible') return;
-		refreshTimer = setInterval(() => {
-			// Poll only a visible tab, and never overlap an in-flight request.
-			if (document.visibilityState === 'visible' && !loading) void load({ background: true });
-		}, AUTO_REFRESH_MS);
+		refreshTimer = setInterval(maybeAutoRefresh, AUTO_REFRESH_MS);
+	}
+
+	// Refresh only when the tab is visible, nothing is already in flight (so slow
+	// background refreshes can't overlap), and a full interval has actually elapsed
+	// since the last load (so the fixed timer can't refetch right after a manual or
+	// selection-triggered load).
+	function maybeAutoRefresh() {
+		if (!browser || document.visibilityState !== 'visible') return;
+		if (inFlight > 0) return;
+		if (Date.now() - lastLoadAt < AUTO_REFRESH_MS) return;
+		void load({ background: true });
 	}
 
 	function handleVisibilityChange() {
 		if (document.visibilityState === 'visible') {
 			// Catch up on return if we skipped at least one refresh cycle while hidden.
-			if (!loading && Date.now() - lastLoadAt >= AUTO_REFRESH_MS) void load({ background: true });
+			maybeAutoRefresh();
 			startAutoRefresh();
 		} else {
 			stopAutoRefresh();
