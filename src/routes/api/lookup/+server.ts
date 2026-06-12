@@ -3,6 +3,8 @@ import type { RequestHandler } from './$types';
 import { LRUCache } from '$lib/server/cache.js';
 import { SlidingWindowThrottle } from '$lib/server/throttle.js';
 import { checkEdgeRateLimit } from '$lib/server/ratelimit.js';
+import { isFixtureMode } from '$lib/providers/index.js';
+import { BENCHMARKS, isBenchmarkSymbol } from '$lib/benchmarks.js';
 
 const SYMBOL_RE = /^[A-Z\^.\-]{1,8}$/;
 
@@ -42,6 +44,17 @@ export const GET: RequestHandler = async ({ url, request, getClientAddress, plat
 	const raw = (url.searchParams.get('symbol') ?? '').trim().toUpperCase();
 	if (!raw) throw error(400, 'symbol required');
 	if (!SYMBOL_RE.test(raw)) throw error(400, 'invalid symbol');
+
+	// Fixture mode: short-circuit before the throttle, edge cache, and Yahoo
+	// search fetch. Never touch the network in `npm run dev:static`.
+	if (isFixtureMode()) {
+		const result: LookupResult = {
+			symbol: raw,
+			name: isBenchmarkSymbol(raw) ? BENCHMARKS[raw].label : raw,
+			currency: isBenchmarkSymbol(raw) ? BENCHMARKS[raw].currency : 'USD'
+		};
+		return json(result, { headers: { 'X-Cache': 'fixture' } });
+	}
 
 	const tKey = clientKey(request, getClientAddress);
 	const edgeLimited = await checkEdgeRateLimit(platform, tKey);
