@@ -745,13 +745,7 @@
 				/>
 			{/if}
 
-			<OverflowMenu
-				{loading}
-				onRefresh={() => void load()}
-				onReset={resetSelection}
-				{theme}
-				{themeOptions}
-			/>
+			<OverflowMenu onReset={resetSelection} {theme} {themeOptions} />
 		</div>
 	</header>
 

@@ -4,14 +4,12 @@
 	import type { ThemeStore, ThemeMode } from '$lib/theme/mode.svelte.js';
 
 	type Props = {
-		loading: boolean;
-		onRefresh: () => void;
 		onReset: () => void;
 		theme: ThemeStore;
 		themeOptions: ThemeMode[];
 	};
 
-	let { loading, onRefresh, onReset, theme, themeOptions }: Props = $props();
+	let { onReset, theme, themeOptions }: Props = $props();
 
 	const itemClass = cn(
 		'relative flex w-full cursor-default items-center gap-2.5 no-underline',
@@ -54,23 +52,6 @@
 				'p-1 outline-none'
 			)}
 		>
-			<DropdownMenu.Item disabled={loading} onSelect={onRefresh} class={itemClass}>
-				<svg
-					viewBox="0 0 24 24"
-					class={cn('h-4 w-4 shrink-0', loading && 'animate-spin')}
-					fill="none"
-					stroke="currentColor"
-					stroke-width="1.75"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					aria-hidden="true"
-				>
-					<path d="M21 12a9 9 0 1 1-3.51-7.13" />
-					<path d="M21 4v5h-5" />
-				</svg>
-				<span>Refresh</span>
-			</DropdownMenu.Item>
-
 			<DropdownMenu.Item onSelect={onReset} class={itemClass}>
 				<svg
 					viewBox="0 0 24 24"
