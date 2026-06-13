@@ -2,16 +2,27 @@ import { LRUCache } from './cache.js';
 import type { FetchChart, YahooChartResult } from '../providers/yahoo.js';
 import type { Interval } from '../providers/types.js';
 
-// Sized to the endpoint's own working set: MAX_STOCKS(8) + MAX_COMPARES(8) = 16
-// symbols × 5 intervals (1m/5m/1d/1wk/1mo) = 80 distinct keys worst-case, with
-// headroom so a full 16-symbol sweep across every range never self-evicts inside
-// the TTL. The short TTL keeps today's last bar fresh.
-const RAW_CACHE_MAX = 96;
+// The cache is keyed without time bounds, so it is split by interval *class* and
+// each class is capped independently — the count cap alone can't be sized for
+// memory because intraday and daily entries differ ~10–100× in resident bytes.
+//
+// Intraday (1m/5m) entries are heavy: a 1m entry holds ~2.7k bars ≈ 0.4–0.7 MB.
+// The cache is per *isolate* and shared across all concurrent clients on it, so
+// the working set is NOT bounded by one request's 16 symbols — many clients can
+// populate distinct intraday entries at once. A small dedicated cap bounds the
+// worst case (~32 × 0.7 MB ≈ 22 MB) well inside a Workers isolate.
+const INTRADAY_INTERVALS: ReadonlySet<Interval> = new Set(['1m', '5m']);
+const INTRADAY_CACHE_MAX = 32;
+// Daily-and-longer entries are cheap (~280 bars ≈ tens of KB), so a generous cap
+// holds the full 16-symbol × 3-interval (1d/1wk/1mo) sweep without self-evicting.
+const DAILY_CACHE_MAX = 96;
 const RAW_CACHE_TTL_MS = 60_000;
 
 // One interval of forward buffer on period2 so the in-progress final bar is
-// always inside the fetched window. Intervals not produced by `intervalForRange`
-// (15m/30m/1h) are absent → such requests pass through unwidened.
+// always inside the fetched window. Membership here also marks which intervals
+// are *cacheable*: only intervals we widen to a fixed canonical window have a
+// time-bound-free key that is guaranteed to cover any later request. Intervals
+// not produced by `intervalForRange` (15m/30m/1h) are absent → bypassed.
 const FORWARD_BUFFER_MS: Partial<Record<Interval, number>> = {
 	'1m': 60_000,
 	'5m': 5 * 60_000,
@@ -61,9 +72,16 @@ function canonicalPeriod1(period2: Date, interval: Interval): Date {
 	}
 }
 
-function canonicalOpts(opts: ChartOpts): ChartOpts {
+/**
+ * The widened canonical opts for a cacheable interval, or `null` for an interval
+ * we don't widen (15m/30m/1h). Returning `null` is the signal to **bypass** the
+ * cache: without a fixed canonical window, the time-bound-free key can't promise
+ * the stored raw covers a later request's `period1/period2` — a second valid
+ * request could otherwise slice empty bars out of an unrelated window.
+ */
+function canonicalOpts(opts: ChartOpts): ChartOpts | null {
 	const buffer = FORWARD_BUFFER_MS[opts.interval];
-	if (buffer === undefined) return opts; // unsupported interval: pass through
+	if (buffer === undefined) return null; // not cacheable: no fixed window
 	const period2 = new Date(opts.period2.getTime() + buffer);
 	let period1 = canonicalPeriod1(period2, opts.interval);
 	// Defensive: a caller reaching further back than the canonical window
@@ -86,10 +104,24 @@ function canonicalOpts(opts: ChartOpts): ChartOpts {
  * session) **is** in the key — Yahoo's raw response differs by it.
  */
 export function withCachedFetch(inner: FetchChart): FetchChart {
-	const cache = new LRUCache<YahooChartResult>({ max: RAW_CACHE_MAX, ttlMs: RAW_CACHE_TTL_MS });
+	const intradayCache = new LRUCache<YahooChartResult>({
+		max: INTRADAY_CACHE_MAX,
+		ttlMs: RAW_CACHE_TTL_MS
+	});
+	const dailyCache = new LRUCache<YahooChartResult>({
+		max: DAILY_CACHE_MAX,
+		ttlMs: RAW_CACHE_TTL_MS
+	});
 	const inflight = new Map<string, Promise<YahooChartResult>>();
 
 	return (symbol, opts) => {
+		const canonical = canonicalOpts(opts);
+		// Non-widened intervals (15m/30m/1h) have no fixed window the key can stand
+		// in for, so bypass the cache *and* single-flight entirely and fetch the
+		// caller's own bounds — sharing would risk slicing empty/unrelated bars.
+		if (canonical === null) return inner(symbol, opts);
+
+		const cache = INTRADAY_INTERVALS.has(opts.interval) ? intradayCache : dailyCache;
 		const key = `${symbol}|${opts.interval}|${opts.includePrePost}`;
 
 		const hit = cache.get(key);
@@ -98,7 +130,7 @@ export function withCachedFetch(inner: FetchChart): FetchChart {
 		const pending = inflight.get(key);
 		if (pending) return pending;
 
-		const p = inner(symbol, canonicalOpts(opts))
+		const p = inner(symbol, canonical)
 			.then((raw) => {
 				cache.set(key, raw);
 				return raw;

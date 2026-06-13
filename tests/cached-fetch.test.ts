@@ -37,7 +37,10 @@ function meta(symbol: string): YahooChartMeta {
 
 // Lightweight raw for count-only tests — value doesn't matter, only call counts.
 function tinyRaw(symbol: string): YahooChartResult {
-	return { meta: meta(symbol), quotes: [{ date: new Date(0), close: 1, adjclose: 0.9, volume: 0 }] };
+	return {
+		meta: meta(symbol),
+		quotes: [{ date: new Date(0), close: 1, adjclose: 0.9, volume: 0 }]
+	};
 }
 
 // Daily/weekly/monthly bars anchored to noon UTC so calendar-date normalization
@@ -98,7 +101,12 @@ describe('withCachedFetch — caching & single-flight', () => {
 		// A fixed, long-past period2: if the window anchored to Date.now() instead,
 		// the canonical period2 would be ~now (2025/2026), not this 2024 date.
 		const period2 = new Date(Date.UTC(2024, 0, 15));
-		await cached('AAPL', { interval: '1d', includePrePost: false, period1: new Date(Date.UTC(2024, 0, 10)), period2 });
+		await cached('AAPL', {
+			interval: '1d',
+			includePrePost: false,
+			period1: new Date(Date.UTC(2024, 0, 10)),
+			period2
+		});
 
 		expect(calls.length).toBe(1);
 		const c = calls[0].opts;
@@ -167,17 +175,53 @@ describe('withCachedFetch — caching & single-flight', () => {
 		}
 	});
 
-	it('evicts the oldest key past the capacity bound', async () => {
+	it('evicts the oldest daily key past the daily capacity bound', async () => {
 		const { fetch, calls } = makeSpy();
 		const cached = withCachedFetch(fetch);
 
-		// max is 96; 97 distinct keys evicts the first (S0).
+		// Daily cap is 96; 97 distinct keys evicts the first (S0).
 		for (let i = 0; i < 97; i++) await cached(`S${i}`, opts1d());
 		expect(calls.length).toBe(97);
 
 		await cached('S0', opts1d()); // evicted → refetch
 		expect(calls.length).toBe(98);
 		expect(calls.filter((c) => c.symbol === 'S0').length).toBe(2);
+	});
+
+	it('caps intraday entries separately (heavy 1m/5m bounded below the daily cap)', async () => {
+		const { fetch, calls } = makeSpy();
+		const cached = withCachedFetch(fetch);
+		const opts1m = (sym: number): [string, ChartOpts] => [`S${sym}`, opts1d({ interval: '1m' })];
+
+		// Intraday cap is 32; 33 distinct 1m keys evicts the first (S0)...
+		for (let i = 0; i < 33; i++) await cached(...opts1m(i));
+		await cached(...opts1m(0)); // evicted → refetch
+		expect(calls.filter((c) => c.symbol === 'S0').length).toBe(2);
+
+		// ...while a daily key populated long before is still warm (separate cap).
+		const before = calls.length;
+		await cached('DAILY', opts1d());
+		await cached('DAILY', opts1d());
+		expect(calls.length).toBe(before + 1); // second is a hit
+	});
+
+	it('bypasses the cache for non-widened intervals (no empty-bar cross-contamination)', async () => {
+		const { fetch, calls } = makeSpy();
+		const cached = withCachedFetch(fetch);
+		const win = (m: number): ChartOpts => ({
+			interval: '1h',
+			includePrePost: false,
+			period1: new Date(Date.UTC(2024, m, 1)),
+			period2: new Date(Date.UTC(2024, m + 1, 1))
+		});
+
+		await cached('AAPL', win(0)); // Jan–Feb
+		await cached('AAPL', win(2)); // Mar–Apr (disjoint, same key shape)
+
+		expect(calls.length).toBe(2); // not shared
+		// Each fetch keeps the caller's OWN bounds — never widened, never reused.
+		expect(calls[0].opts.period1.getTime()).toBe(Date.UTC(2024, 0, 1));
+		expect(calls[1].opts.period1.getTime()).toBe(Date.UTC(2024, 2, 1));
 	});
 });
 
@@ -261,7 +305,12 @@ describe('getProvider() wiring', () => {
 		expect(getProvider()).toBe(provider); // singleton
 
 		const p2 = SEC(Date.UTC(2025, 5, 1));
-		const base = { interval: '1d' as const, session: 'regular' as const, adjusted: false, period2: p2 };
+		const base = {
+			interval: '1d' as const,
+			session: 'regular' as const,
+			adjusted: false,
+			period2: p2
+		};
 		await provider.getHistory('AAPL', { ...base, period1: SEC(Date.UTC(2024, 5, 1)) }); // 1Y
 		await provider.getHistory('AAPL', { ...base, period1: SEC(Date.UTC(2025, 4, 1)) }); // 1M, same key
 

@@ -55,11 +55,11 @@ singleton), so it benefits from the raw-fetch cache too; it does not use the
 All three live in the Worker. They are checked outermost-first (cheap → costly)
 and populated on the way back out.
 
-| Layer | Key | TTL | Where it lives | `X-Cache` |
-| --- | --- | --- | --- | --- |
-| **Edge cache** `caches.default` | full request URL (`stocks`, `compares`, `range`) | `s-maxage=60` | per **colo** (data center) | `edge-hit` |
-| **`MultiResponse` LRU** | `multi\|stocks\|compares\|range` | 60 s, `max: 200` | per **isolate** (module memory) | `lru-hit` |
-| **Raw-fetch LRU + single-flight** | `symbol\|interval\|includePrePost` | 60 s, `max: 96` | per **isolate** (module memory) | (internal) |
+| Layer                             | Key                                              | TTL              | Where it lives                  | `X-Cache`  |
+| --------------------------------- | ------------------------------------------------ | ---------------- | ------------------------------- | ---------- |
+| **Edge cache** `caches.default`   | full request URL (`stocks`, `compares`, `range`) | `s-maxage=60`    | per **colo** (data center)      | `edge-hit` |
+| **`MultiResponse` LRU**           | `multi\|stocks\|compares\|range`                 | 60 s, `max: 200` | per **isolate** (module memory) | `lru-hit`  |
+| **Raw-fetch LRU + single-flight** | `symbol\|interval\|includePrePost`               | 60 s, split caps | per **isolate** (module memory) | (internal) |
 
 ### 1. Edge cache (`caches.default`)
 
@@ -91,13 +91,13 @@ and ticker edits cheap: it caches the **raw Yahoo chart response per
   caller's first bar and drop it). `buildResultFromChart` then re-slices the raw
   back to the caller's real `period1/period2`, so the widening is invisible.
 
-  | interval | canonical window | serves ranges |
-  | --- | --- | --- |
-  | `1m`  | ~7 days | 1D |
-  | `5m`  | ~35 days | 5D |
-  | `1d`  | ~13 months | **1M, 6M, YTD, 1Y** |
-  | `1wk` | ~5 years + 1 month | 5Y |
-  | `1mo` | epoch → now | MAX |
+  | interval | canonical window   | serves ranges       |
+  | -------- | ------------------ | ------------------- |
+  | `1m`     | ~7 days            | 1D                  |
+  | `5m`     | ~35 days           | 5D                  |
+  | `1d`     | ~13 months         | **1M, 6M, YTD, 1Y** |
+  | `1wk`    | ~5 years + 1 month | 5Y                  |
+  | `1mo`    | epoch → now        | MAX                 |
 
   So the first request for _any_ daily range fetches ~13 months once; 1M/6M/YTD/1Y
   then all slice from that single entry.
@@ -113,10 +113,25 @@ and ticker edits cheap: it caches the **raw Yahoo chart response per
   same key into one upstream fetch. The entry is cleared on settle (resolve _and_
   reject) so a failed fetch never poisons the key — the next call retries.
 
-- **Bound.** `max: 96` is sized to the endpoint's worst case — 16 symbols
-  (`MAX_STOCKS + MAX_COMPARES`) × 5 intervals = 80 keys — with headroom, so a full
-  comparison sweeping every range never self-evicts inside the TTL. This is a
-  **whole-isolate** budget, not per-client (see below).
+- **Split, interval-aware bounds.** Because the key carries no time bounds, the
+  cache can't be sized by count alone — an intraday `1m` entry (~2.7k bars ≈
+  0.4–0.7 MB) is ~10–100× heavier than a daily one (~280 bars ≈ tens of KB). And
+  the cache is **per isolate, shared across all concurrent clients on it**, so the
+  intraday working set is _not_ bounded by one request's 16 symbols — many clients
+  can populate distinct `1m`/`5m` entries at once. So it is split into two LRUs:
+  a small **intraday cap (`1m`/`5m`, max 32)** that bounds the heavy entries to
+  ~22 MB worst case, and a generous **daily-and-longer cap (`1d`/`1wk`/`1mo`, max 96)** for the cheap ones. Both are whole-isolate budgets, not per-client. The
+  cost of the smaller intraday cap is that two+ concurrent clients each sweeping a
+  full 16-symbol intraday comparison can evict each other (a refetch), which is
+  the intended trade for a hard memory bound.
+
+- **Unsupported intervals bypass entirely.** The time-bound-free key is only sound
+  for intervals widened to a fixed canonical window (the table above) — that fixed
+  window is what guarantees a stored entry covers any later request for the key.
+  Intervals we don't widen (`15m`/`30m`/`1h`, never produced by `intervalForRange`
+  today) are **not cached and not single-flighted**: they pass straight through to
+  Yahoo with their own bounds. Caching them would risk a second valid request
+  slicing empty/unrelated bars out of the first request's window.
 
 ## Sharing & isolate semantics
 
@@ -192,13 +207,13 @@ polls only fire when nothing is in flight).
 
 ## File map
 
-| Concern | File |
-| --- | --- |
-| Raw-fetch cache + single-flight + canonical window | `src/lib/server/cached-fetch.ts` |
-| Bounded LRU (TTL + eviction) used by layers 2 & 3 | `src/lib/server/cache.ts` |
-| Provider wiring (`getProvider` → `withCachedFetch(getChartFetcher())`) | `src/lib/providers/index.ts` |
-| `MultiResponse` LRU + edge cache + response assembly | `src/routes/api/history-multi/+server.ts` |
-| In-process throttle | `src/lib/server/throttle.ts` |
-| Edge rate-limiter binding | `src/lib/server/ratelimit.ts` |
-| Client cancellation / sequence guard / auto-refresh | `src/routes/+page.svelte` |
-| Range → interval → period mapping | `src/lib/benchmarks.ts` |
+| Concern                                                                | File                                      |
+| ---------------------------------------------------------------------- | ----------------------------------------- |
+| Raw-fetch cache + single-flight + canonical window                     | `src/lib/server/cached-fetch.ts`          |
+| Bounded LRU (TTL + eviction) used by layers 2 & 3                      | `src/lib/server/cache.ts`                 |
+| Provider wiring (`getProvider` → `withCachedFetch(getChartFetcher())`) | `src/lib/providers/index.ts`              |
+| `MultiResponse` LRU + edge cache + response assembly                   | `src/routes/api/history-multi/+server.ts` |
+| In-process throttle                                                    | `src/lib/server/throttle.ts`              |
+| Edge rate-limiter binding                                              | `src/lib/server/ratelimit.ts`             |
+| Client cancellation / sequence guard / auto-refresh                    | `src/routes/+page.svelte`                 |
+| Range → interval → period mapping                                      | `src/lib/benchmarks.ts`                   |
