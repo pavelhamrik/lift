@@ -71,6 +71,10 @@
 	// Count of requests currently awaiting the network (foreground + background);
 	// gates auto-refresh so it never overlaps an in-flight load.
 	let inFlight = 0;
+	// Aborts the request that a newer load() supersedes, so a stale request never
+	// finishes its round-trip (and never buffers a body that the seq-guard would
+	// just discard). Distinct from `inFlight` above despite the similar name.
+	let inflightAbort: AbortController | null = null;
 	// Set when a background auto-refresh fails; surfaced as a non-blocking notice
 	// while the last successful data stays on screen.
 	let refreshFailed = $state(false);
@@ -294,6 +298,12 @@
 
 	async function load(opts: { background?: boolean } = {}) {
 		const { background = false } = opts;
+		// Cancel any still-in-flight request before starting a new one — including
+		// before bailing on an empty selection, so clearing all stocks aborts a
+		// pending load rather than letting it commit stale data afterwards.
+		inflightAbort?.abort();
+		inflightAbort = new AbortController();
+		const signal = inflightAbort.signal;
 		if (stocks.length === 0) {
 			data = null;
 			loadError = null;
@@ -317,7 +327,7 @@
 			u.searchParams.set('stocks', stocks.join(','));
 			u.searchParams.set('compares', compares.join(','));
 			u.searchParams.set('range', range);
-			const r = await fetch(u);
+			const r = await fetch(u, { signal });
 			if (seq !== loadSeq) return; // superseded by a newer request
 			if (!r.ok) {
 				if (background) {
@@ -340,7 +350,10 @@
 			renderChart();
 			persistSelection();
 			syncUrl();
-		} catch {
+		} catch (e) {
+			// A deliberate cancel (a newer load superseded this one, or the component
+			// is tearing down) must never flip error state or the refresh notice.
+			if ((e as { name?: string } | null)?.name === 'AbortError') return;
 			if (seq !== loadSeq) return;
 			if (background) {
 				refreshFailed = true;
@@ -563,6 +576,7 @@
 		handles?.dispose();
 		theme.destroy();
 		clearRefreshTimer();
+		inflightAbort?.abort();
 		if (browser) document.removeEventListener('visibilitychange', handleVisibilityChange);
 		if (shareTimer) clearTimeout(shareTimer);
 	});
