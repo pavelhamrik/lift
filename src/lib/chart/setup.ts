@@ -55,14 +55,22 @@ export type ChartHandles = {
 };
 
 const STOCK_PALETTE_SLOTS: string[] = [
-	'--color-target',
-	'#10b981',
-	'#f59e0b',
-	'#f43f5e',
-	'#8b5cf6',
-	'#f97316',
-	'#14b8a6',
-	'#d946ef'
+	// Base shade (500)
+	'--color-target', // our custom primary
+	'#f59e0b', // amber-500
+	'#0ea5e9', // sky-500
+	'#a855f7', // purple-500
+	'#84cc16', // lime-500
+	'#ec4899', // pink-500
+	'#6366f1', // indigo-500
+	// One shade darker (600)
+	'#ea580c', // orange-600
+	'#16a34a', // green-600
+	'#ca8a04', // yellow-600
+	'#2563eb', // blue-600
+	'#7c3aed', // violet-600
+	'#c026d3', // fuchsia-600
+	'#e11d48' // rose-600
 ];
 
 const COMPARE_PALETTE_SLOTS: string[] = [

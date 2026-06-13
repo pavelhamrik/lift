@@ -27,10 +27,10 @@
 		{disabled}
 		aria-label="Add comparison"
 		class={cn(
-			'group inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-xs font-medium tracking-wide transition-colors',
+			'group inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-xs font-medium transition-colors',
 			'border-dashed border-(--color-input) text-(--color-muted-foreground)',
 			'hover:border-(--color-muted-foreground)/60 hover:text-(--color-foreground)',
-			'focus:outline-none focus:border-(--color-ring)',
+			'focus:border-(--color-ring) focus:outline-none',
 			'data-[state=open]:border-(--color-ring) data-[state=open]:text-(--color-foreground)',
 			'disabled:cursor-not-allowed disabled:opacity-50'
 		)}
@@ -55,7 +55,7 @@
 			sideOffset={6}
 			align="start"
 			class={cn(
-				'z-50 min-w-[16rem] max-h-[min(70vh,420px)] overflow-y-auto',
+				'z-50 max-h-[min(70vh,420px)] min-w-[16rem] overflow-y-auto',
 				'rounded-[var(--radius)] border shadow-md',
 				'bg-(--color-popover) text-(--color-popover-foreground)',
 				'border-(--color-border)',
@@ -64,9 +64,7 @@
 		>
 			{#each sections as section, sectionIndex (section.group)}
 				{#if sectionIndex > 0}
-					<DropdownMenu.Separator
-						class="my-1 h-px bg-(--color-border)"
-					/>
+					<DropdownMenu.Separator class="my-1 h-px bg-(--color-border)" />
 				{/if}
 				<DropdownMenu.Group>
 					<DropdownMenu.GroupHeading
@@ -82,7 +80,7 @@
 								'relative flex w-full cursor-default items-center justify-between gap-2',
 								'rounded-[calc(var(--radius)-2px)] py-1.5 pr-2 pl-2 text-sm select-none',
 								'data-[highlighted]:bg-(--color-muted) data-[highlighted]:text-(--color-foreground)',
-								'data-[disabled]:opacity-40 data-[disabled]:pointer-events-none',
+								'data-[disabled]:pointer-events-none data-[disabled]:opacity-40',
 								'outline-none'
 							)}
 						>

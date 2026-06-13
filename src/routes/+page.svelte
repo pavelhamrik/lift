@@ -576,133 +576,146 @@
 </svelte:head>
 
 <div class="flex min-h-screen flex-col">
-	<header class="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
-		<a href="/" aria-label="Lift home" class="mr-1 inline-flex shrink-0 items-center">
+	<header class="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
+		<a href="/" aria-label="Lift home" class="order-1 mr-1 inline-flex shrink-0 items-center">
 			<Logo class="h-5 w-auto text-(--color-foreground)" />
 		</a>
 
-		<div class="flex flex-wrap items-center gap-1.5">
-			{#each stocks as s (s)}
-				<span
-					class="inline-flex h-7 items-center gap-1.5 rounded-full border pr-1 pl-2.5 text-xs font-medium tabular-nums"
-					style="border-color: var(--color-border)"
-				>
+		<div
+			class="no-scrollbar order-3 flex w-full min-w-0 items-center gap-3 overflow-x-auto lg:order-2 lg:w-auto lg:flex-1"
+		>
+			<div class="flex shrink-0 items-center gap-1.5">
+				{#each stocks as s (s)}
 					<span
-						class="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-						style="background: {colorFor(s)}"
-					></span>
-					<span class="text-(--color-foreground)">{s}</span>
-					<button
-						type="button"
-						aria-label={`Remove ${s}`}
-						title={stocks.length <= 1 ? 'At least one stock required' : `Remove ${s}`}
-						disabled={stocks.length <= 1}
-						onclick={() => removeStock(s)}
-						class={cn(
-							'inline-flex h-5 w-5 items-center justify-center rounded-full transition-colors',
-							'text-(--color-muted-foreground) hover:bg-(--color-accent) hover:text-(--color-foreground)',
-							'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent'
-						)}
+						class="inline-flex h-7 items-center gap-1.5 rounded-full border pr-1 pl-2.5 text-xs font-medium tabular-nums"
+						style="border-color: var(--color-border)"
 					>
-						<svg
-							viewBox="0 0 20 20"
-							class="h-3 w-3"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							aria-hidden="true"
+						<span
+							class="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+							style="background: {colorFor(s)}"
+						></span>
+						<span class="text-(--color-foreground)">{s}</span>
+						<button
+							type="button"
+							aria-label={`Remove ${s}`}
+							title={stocks.length <= 1 ? 'At least one stock required' : `Remove ${s}`}
+							disabled={stocks.length <= 1}
+							onclick={() => removeStock(s)}
+							class={cn(
+								'inline-flex h-5 w-5 items-center justify-center rounded-full transition-colors',
+								'text-(--color-muted-foreground) hover:bg-(--color-accent) hover:text-(--color-foreground)',
+								'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent'
+							)}
 						>
-							<path d="M5 5l10 10M15 5l-10 10" />
-						</svg>
-					</button>
-				</span>
-			{/each}
-			<div class="relative flex items-center">
-				<input
-					type="text"
-					bind:value={stockInput}
-					onkeydown={onStockKeydown}
-					placeholder={stocks.length >= MAX_STOCKS ? `Max ${MAX_STOCKS}` : '+ ticker'}
-					autocomplete="off"
-					autocapitalize="characters"
-					spellcheck="false"
-					disabled={stocks.length >= MAX_STOCKS}
-					aria-label="Add stock"
-					title={stockInputError ?? 'Add stock'}
-					class={cn(
-						'h-7 w-28 rounded-full border px-2.5 text-xs font-medium uppercase transition-colors',
-						'bg-(--color-card) text-(--color-card-foreground) placeholder:text-(--color-muted-foreground)',
-						'border-dashed border-(--color-input) hover:border-(--color-muted-foreground)/60',
-						'focus:border-(--color-ring) focus:outline-none',
-						'disabled:cursor-not-allowed disabled:opacity-50',
-						stockInputError && 'border-(--color-destructive)'
-					)}
+							<svg
+								viewBox="0 0 20 20"
+								class="h-3 w-3"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								aria-hidden="true"
+							>
+								<path d="M5 5l10 10M15 5l-10 10" />
+							</svg>
+						</button>
+					</span>
+				{/each}
+				<div class="relative flex items-center">
+					<input
+						type="text"
+						bind:value={stockInput}
+						onkeydown={onStockKeydown}
+						placeholder={stocks.length >= MAX_STOCKS ? `Max ${MAX_STOCKS}` : '+ ticker'}
+						autocomplete="off"
+						autocapitalize="characters"
+						spellcheck="false"
+						disabled={stocks.length >= MAX_STOCKS}
+						aria-label="Add stock"
+						title={stockInputError ?? 'Add stock'}
+						class={cn(
+							'h-7 w-28 rounded-full border px-2.5 text-xs font-medium uppercase transition-colors',
+							'bg-(--color-card) text-(--color-card-foreground) placeholder:text-(--color-muted-foreground)',
+							'border-dashed border-(--color-input) hover:border-(--color-muted-foreground)/60',
+							'focus:border-(--color-ring) focus:outline-none',
+							'disabled:cursor-not-allowed disabled:opacity-50',
+							stockInputError && 'border-(--color-destructive)'
+						)}
+					/>
+					{#if lookupStatus === 'loading'}
+						<div
+							class="absolute top-full left-2.5 mt-1 max-w-[16rem] truncate text-[11px] text-(--color-muted-foreground)"
+						>
+							Looking up…
+						</div>
+					{:else if lookupStatus === 'found' && lookupName}
+						<div
+							class="absolute top-full left-2.5 mt-1 max-w-[16rem] truncate text-[11px] text-(--color-muted-foreground)"
+							title={lookupName}
+						>
+							{lookupName}
+						</div>
+					{:else if lookupStatus === 'notfound'}
+						<div class="absolute top-full left-2.5 mt-1 text-[11px] text-(--color-destructive)">
+							Not found
+						</div>
+					{/if}
+				</div>
+			</div>
+
+			<div class="flex shrink-0 items-center gap-1.5">
+				{#each compares as c (c)}
+					<span
+						class="inline-flex h-7 items-center gap-1.5 rounded-full border pr-1 pl-2.5 text-xs font-medium tabular-nums"
+						style="border-color: var(--color-border)"
+					>
+						<span
+							class="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+							style="background: {colorFor(c)}"
+						></span>
+						<span class="text-(--color-foreground)">{c}</span>
+						<button
+							type="button"
+							aria-label={`Remove ${c}`}
+							title={`Remove ${c}`}
+							onclick={() => removeCompare(c)}
+							class={cn(
+								'inline-flex h-5 w-5 items-center justify-center rounded-full transition-colors',
+								'text-(--color-muted-foreground) hover:bg-(--color-accent) hover:text-(--color-foreground)'
+							)}
+						>
+							<svg
+								viewBox="0 0 20 20"
+								class="h-3 w-3"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								aria-hidden="true"
+							>
+								<path d="M5 5l10 10M15 5l-10 10" />
+							</svg>
+						</button>
+					</span>
+				{/each}
+				<CompareAddMenu
+					excluded={compares}
+					disabled={compares.length >= MAX_COMPARES}
+					onAdd={addCompare}
 				/>
-				{#if lookupStatus === 'loading'}
-					<div
-						class="absolute top-full left-2.5 mt-1 max-w-[16rem] truncate text-[11px] text-(--color-muted-foreground)"
-					>
-						Looking up…
-					</div>
-				{:else if lookupStatus === 'found' && lookupName}
-					<div
-						class="absolute top-full left-2.5 mt-1 max-w-[16rem] truncate text-[11px] text-(--color-muted-foreground)"
-						title={lookupName}
-					>
-						{lookupName}
-					</div>
-				{:else if lookupStatus === 'notfound'}
-					<div class="absolute top-full left-2.5 mt-1 text-[11px] text-(--color-destructive)">
-						Not found
-					</div>
-				{/if}
 			</div>
 		</div>
 
-		<div class="flex flex-wrap items-center gap-1.5">
-			{#each compares as c (c)}
-				<span
-					class="inline-flex h-7 items-center gap-1.5 rounded-full border pr-1 pl-2.5 text-xs font-medium tabular-nums"
-					style="border-color: var(--color-border)"
-				>
-					<span
-						class="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-						style="background: {colorFor(c)}"
-					></span>
-					<span class="text-(--color-foreground)">{c}</span>
-					<button
-						type="button"
-						aria-label={`Remove ${c}`}
-						title={`Remove ${c}`}
-						onclick={() => removeCompare(c)}
-						class={cn(
-							'inline-flex h-5 w-5 items-center justify-center rounded-full transition-colors',
-							'text-(--color-muted-foreground) hover:bg-(--color-accent) hover:text-(--color-foreground)'
-						)}
-					>
-						<svg
-							viewBox="0 0 20 20"
-							class="h-3 w-3"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							aria-hidden="true"
-						>
-							<path d="M5 5l10 10M15 5l-10 10" />
-						</svg>
-					</button>
-				</span>
-			{/each}
-			<CompareAddMenu
-				excluded={compares}
-				disabled={compares.length >= MAX_COMPARES}
-				onAdd={addCompare}
-			/>
-		</div>
+		<div class="order-2 ml-auto inline-flex shrink-0 items-center gap-2 lg:order-3">
+			{#if pageData.supabase}
+				<AccountMenu
+					supabase={pageData.supabase}
+					user={pageData.user}
+					selection={{ stocks: [...stocks], compares: [...compares], range }}
+					onLoad={applySelection}
+				/>
+			{/if}
 
-		<div class="ml-auto inline-flex items-center gap-2">
 			<button
 				type="button"
 				title={shareCopied ? 'Link copied' : 'Copy shareable link'}
@@ -748,29 +761,20 @@
 				{/if}
 			</button>
 
-			{#if pageData.supabase}
-				<AccountMenu
-					supabase={pageData.supabase}
-					user={pageData.user}
-					selection={{ stocks: [...stocks], compares: [...compares], range }}
-					onLoad={applySelection}
-				/>
-			{/if}
-
 			<OverflowMenu onReset={resetSelection} {theme} {themeOptions} />
 		</div>
 	</header>
 
-	<section class="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-4 sm:px-6">
-		<div class="flex flex-wrap items-baseline gap-x-6 gap-y-2">
+	<section class="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 pb-4 sm:px-6">
+		<div class="no-scrollbar flex max-w-full min-w-0 items-baseline gap-x-6 overflow-x-auto">
 			{#if data}
 				{#each data.series as s (s.symbol)}
 					{@const cls = pctClass(s.summary.pctChange)}
-					<div>
+					<div class="shrink-0">
 						<div class={cn('text-2xl font-semibold tracking-tight tabular-nums', cls)}>
 							{formatPct(s.summary.pctChange, 1)}
 						</div>
-						<div class="mt-0.5 flex items-center gap-1.5 text-xs text-(--color-muted-foreground)">
+						<div class="flex items-center gap-1.5 text-xs text-(--color-muted-foreground)">
 							<span
 								class="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
 								style="background: {colorFor(s.symbol)}"
@@ -782,14 +786,15 @@
 			{/if}
 		</div>
 
-		<div class="ml-auto inline-flex items-center gap-1" role="radiogroup" aria-label="Time range">
+		<div class="ml-auto inline-flex items-center gap-0.5" role="radiogroup" aria-label="Time range">
 			{#each RANGES as r (r)}
 				<button
 					type="button"
 					role="radio"
 					aria-checked={range === r}
 					class={cn(
-						'inline-flex h-7 items-center justify-center rounded-full px-3 text-xs font-medium tracking-wide transition-colors',
+						'inline-flex h-7 items-center justify-center rounded-full px-3 text-xs font-medium transition-colors',
+						r !== 'MAX' && 'tracking-wide',
 						range === r
 							? 'bg-(--color-accent) text-(--color-foreground)'
 							: 'text-(--color-muted-foreground) hover:bg-(--color-accent) hover:text-(--color-foreground)'

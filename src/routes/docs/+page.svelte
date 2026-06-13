@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { cn } from '$lib/utils.js';
+	import Logo from '$lib/components/ui/Logo.svelte';
 </script>
 
 <svelte:head>
@@ -10,25 +11,29 @@
 	/>
 </svelte:head>
 
+<header class="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
+	<a href="/" aria-label="Lift home" class="mr-1 inline-flex shrink-0 items-center">
+		<Logo class="h-5 w-auto text-(--color-foreground)" />
+	</a>
+	<a
+		href="/"
+		class={cn(
+			'ml-auto inline-flex h-9 items-center justify-center rounded-full border px-4 text-sm font-medium',
+			'bg-(--color-card) text-(--color-card-foreground) hover:bg-(--color-muted)',
+			'border-(--color-input) transition-colors',
+			'focus:border-(--color-ring) focus:outline-none'
+		)}
+	>
+		Go to App
+	</a>
+</header>
+
 <div class="mx-auto max-w-3xl px-4 py-10 sm:px-6">
-	<header class="mb-10 flex items-center justify-between">
-		<h1 class="text-2xl font-semibold tracking-tight">Docs</h1>
-		<a
-			href="/"
-			class={cn(
-				'inline-flex h-9 items-center justify-center rounded-full border px-4 text-sm font-medium',
-				'bg-(--color-card) text-(--color-card-foreground) hover:bg-(--color-muted)',
-				'border-(--color-input) transition-colors',
-				'focus:border-(--color-ring) focus:outline-none'
-			)}
-		>
-			← Back
-		</a>
-	</header>
+	<h1 class="mb-10 text-3xl font-semibold tracking-tight">Docs</h1>
 
 	<section class="mb-10">
-		<h2 class="mb-3 text-lg font-semibold tracking-tight">What this does</h2>
-		<div class="space-y-3 text-sm leading-relaxed text-(--color-foreground)">
+		<h2 class="mb-3 text-xl font-semibold tracking-tight">What this does</h2>
+		<div class="space-y-3 text-base leading-relaxed text-zinc-700 dark:text-zinc-300">
 			<p>
 				Lift plots one or more stocks against one or more benchmark indices on a single chart. All
 				series are normalised to percent change from the start of the selected time window so they
@@ -42,8 +47,8 @@
 	</section>
 
 	<section class="mb-10">
-		<h2 class="mb-3 text-lg font-semibold tracking-tight">How to use it</h2>
-		<div class="space-y-3 text-sm leading-relaxed text-(--color-foreground)">
+		<h2 class="mb-3 text-xl font-semibold tracking-tight">How to use it</h2>
+		<div class="space-y-3 text-base leading-relaxed text-zinc-700 dark:text-zinc-300">
 			<p>
 				Type a ticker into the dashed pill and press Enter to add it as a stock series. Up to eight
 				stocks at a time. Click the × on a chip to remove it.
@@ -62,8 +67,8 @@
 	</section>
 
 	<section class="mb-10">
-		<h2 class="mb-3 text-lg font-semibold tracking-tight">Caveats &amp; limitations</h2>
-		<div class="space-y-3 text-sm leading-relaxed text-(--color-foreground)">
+		<h2 class="mb-3 text-xl font-semibold tracking-tight">Caveats &amp; limitations</h2>
+		<div class="space-y-3 text-base leading-relaxed text-zinc-700 dark:text-zinc-300">
 			<p>
 				<strong>Trading-calendar gaps.</strong> When you combine stocks listed on different
 				exchanges (e.g. AAPL on Nasdaq and ADS.DE on Xetra), the chart only shows days where
@@ -108,15 +113,15 @@
 	</section>
 
 	<section class="mb-10">
-		<h2 class="mb-3 text-lg font-semibold tracking-tight">Data source</h2>
-		<div class="space-y-3 text-sm leading-relaxed text-(--color-foreground)">
+		<h2 class="mb-3 text-xl font-semibold tracking-tight">Data source</h2>
+		<div class="space-y-3 text-base leading-relaxed text-zinc-700 dark:text-zinc-300">
 			<p>
 				All price and volume data comes from
 				<a
 					href="https://finance.yahoo.com/"
 					target="_blank"
 					rel="noreferrer noopener"
-					class="underline underline-offset-2 hover:text-(--color-primary)"
+					class="text-(--color-foreground) underline underline-offset-2 hover:text-(--color-primary)"
 				>
 					Yahoo Finance
 				</a>
@@ -125,7 +130,7 @@
 					href="https://github.com/gadicc/node-yahoo-finance2"
 					target="_blank"
 					rel="noreferrer noopener"
-					class="underline underline-offset-2 hover:text-(--color-primary)"
+					class="text-(--color-foreground) underline underline-offset-2 hover:text-(--color-primary)"
 				>
 					yahoo-finance2
 				</a>
@@ -138,7 +143,7 @@
 					href="https://tradingview.github.io/lightweight-charts/"
 					target="_blank"
 					rel="noreferrer noopener"
-					class="underline underline-offset-2 hover:text-(--color-primary)"
+					class="text-(--color-foreground) underline underline-offset-2 hover:text-(--color-primary)"
 				>
 					TradingView Lightweight Charts
 				</a>
@@ -147,3 +152,11 @@
 		</div>
 	</section>
 </div>
+
+<style>
+	/* Bold lead-ins: semibold weight, full-contrast foreground. */
+	strong {
+		font-weight: 600;
+		color: var(--color-foreground);
+	}
+</style>
