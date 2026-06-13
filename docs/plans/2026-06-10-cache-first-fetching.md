@@ -1,7 +1,9 @@
 # Plan 2 — Cache-first fetching (stop hitting the API needlessly)
 
 - **Date:** 2026-06-10 (revised 2026-06-12 after review)
-- **Status:** Proposed
+- **Status:** Implemented 2026-06-12 — `src/lib/server/cached-fetch.ts` (`withCachedFetch`),
+  wired in `providers/index.ts`; client cancellation (B1) in `+page.svelte`; tests in
+  `tests/cached-fetch.test.ts`. TTL kept at 60s (plan default).
 - **Related:** [2026-06-10-static-data-dev-toggle.md](./2026-06-10-static-data-dev-toggle.md)
 
 ## Background
