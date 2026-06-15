@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { cn } from '$lib/utils.js';
 </script>
 
@@ -14,7 +15,7 @@
 	<header class="mb-10 flex items-center justify-between">
 		<h1 class="text-2xl font-semibold tracking-tight">Docs</h1>
 		<a
-			href="/"
+			href={resolve('/')}
 			class={cn(
 				'inline-flex h-9 items-center justify-center rounded-full border px-4 text-sm font-medium',
 				'bg-(--color-card) text-(--color-card-foreground) hover:bg-(--color-muted)',
@@ -146,4 +147,16 @@
 			</p>
 		</div>
 	</section>
+
+	<footer class="flex gap-4 border-t pt-6 text-sm text-(--color-muted-foreground)">
+		<a href={resolve('/terms')} class="underline underline-offset-2 hover:text-(--color-foreground)"
+			>Terms</a
+		>
+		<a
+			href={resolve('/privacy')}
+			class="underline underline-offset-2 hover:text-(--color-foreground)"
+		>
+			Privacy
+		</a>
+	</footer>
 </div>

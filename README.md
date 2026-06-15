@@ -22,6 +22,7 @@ index/ETF on a single normalized-percent chart, with the target's volume in a su
     sessions don't coincide — AAPL is open while Nikkei is closed and vice-versa.
     Daily / weekly / monthly bars are normalized to the bar's exchange-local
     calendar date (UTC-midnight), so 1M+ ranges align correctly across sessions.
+
 - **Provider**: Yahoo via `yahoo-finance2`, abstracted behind a `PriceProvider`
   interface so swapping data sources stays local to `src/lib/providers/`.
 
@@ -54,7 +55,7 @@ Scope and caveats:
   US open, or a cross-market intraday compare) can legitimately return empty —
   exactly as live would. Daily and longer ranges always populate.
 - **Build modes always use the real provider.** `npm run preview` and
-  `wrangler dev` run a *production* build, where the fixtures are tree-shaken out
+  `wrangler dev` run a _production_ build, where the fixtures are tree-shaken out
   entirely — so they hit real Yahoo regardless of the env var. The static toggle
   is `vite dev` only.
 
@@ -97,6 +98,13 @@ scheduled (non-blocking) job after launch — not in PR CI.
 
 Charts powered by [TradingView Lightweight Charts](https://www.tradingview.com/). The
 TradingView attribution is required on public pages where the chart is rendered.
+
+## Legal
+
+- Hosted-service terms: `/terms`
+- Privacy policy: `/privacy`
+- Source code: [MIT License](LICENSE)
+- Analytics operator checklist: [docs/analytics-privacy.md](docs/analytics-privacy.md)
 
 ## Out of scope (v1)
 

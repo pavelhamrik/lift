@@ -6,37 +6,127 @@ import { PUBLIC_POSTHOG_KEY, PUBLIC_POSTHOG_HOST } from '$env/static/public';
 // (e.g. local dev, or before the PostHog project exists) every function here
 // is a no-op, so the app ships and runs identically with or without it.
 //
+// Keep collection deliberately minimal: anonymous, cookieless pageviews only.
+// In particular, do not call identify() or send account IDs/email addresses.
+//
+// Consent model is opt-out: because collection is cookieless (nothing is stored
+// on or read from the device), ePrivacy Art. 5(3) consent is not triggered, and
+// the transient processing runs under GDPR legitimate interest. Pageviews
+// therefore flow by default and stop only when the visitor stores a 'rejected'
+// choice via Analytics settings.
+//
 // Read via $env/static/public (inlined at build) rather than /dynamic/public:
 // on the Cloudflare adapter, dynamic public env is read from the Worker's
 // *runtime* environment, but the PostHog key — like the Supabase config — is
 // supplied as a Cloudflare *build* env var, so dynamic reads resolve to
 // undefined in production and analytics silently never initialise.
+export type AnalyticsConsent = 'accepted' | 'rejected' | 'unset';
+
+const CONSENT_STORAGE_KEY = 'lift:analytics-consent';
+const CONSENT_VERSION = 1;
 let started = false;
+let consent: AnalyticsConsent = 'unset';
+let lastPageview = { url: '', at: 0 };
+
+type StoredConsent = {
+	version: number;
+	choice: Exclude<AnalyticsConsent, 'unset'>;
+	updatedAt: string;
+};
+
+export function isAnalyticsConfigured(): boolean {
+	return Boolean(PUBLIC_POSTHOG_KEY);
+}
+
+export function getAnalyticsConsent(): AnalyticsConsent {
+	if (!browser || !isAnalyticsConfigured()) return 'unset';
+	try {
+		const raw = localStorage.getItem(CONSENT_STORAGE_KEY);
+		if (!raw) return 'unset';
+		const stored = JSON.parse(raw) as Partial<StoredConsent>;
+		if (stored.version !== CONSENT_VERSION) return 'unset';
+		if (stored.choice !== 'accepted' && stored.choice !== 'rejected') return 'unset';
+		consent = stored.choice;
+		return consent;
+	} catch {
+		return 'unset';
+	}
+}
+
+export function setAnalyticsConsent(choice: Exclude<AnalyticsConsent, 'unset'>): void {
+	consent = choice;
+	if (!browser) return;
+	try {
+		const stored: StoredConsent = {
+			version: CONSENT_VERSION,
+			choice,
+			updatedAt: new Date().toISOString()
+		};
+		localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify(stored));
+	} catch {
+		// Keep the in-memory choice for this visit if browser storage is unavailable.
+	}
+}
+
+function withoutQuery(value: unknown): unknown {
+	if (typeof value !== 'string' || !value) return value;
+	try {
+		const url = new URL(value, window.location.origin);
+		return `${url.origin}${url.pathname}`;
+	} catch {
+		return value.split('?')[0].split('#')[0];
+	}
+}
 
 export function initAnalytics(): void {
 	if (!browser || started) return;
 	if (!PUBLIC_POSTHOG_KEY) return;
+	if (consent === 'unset') consent = getAnalyticsConsent();
+	// Opt-out model: cookieless pageviews run under legitimate interest unless
+	// the visitor has explicitly opted out.
+	if (consent === 'rejected') return;
 	posthog.init(PUBLIC_POSTHOG_KEY, {
 		api_host: PUBLIC_POSTHOG_HOST || 'https://eu.i.posthog.com',
 		// We capture pageviews manually via afterNavigate so client-side route
 		// changes (/, /docs, /auth/confirm) are all counted.
 		capture_pageview: false,
-		// Don't spend a person profile on every anonymous visitor; only build
-		// profiles once someone signs in and we identify them.
-		person_profiles: 'identified_only'
+		capture_pageleave: false,
+		autocapture: false,
+		capture_exceptions: false,
+		disable_session_recording: true,
+		disable_surveys: true,
+		disable_web_experiments: true,
+		advanced_disable_feature_flags: true,
+		person_profiles: 'never',
+		cookieless_mode: 'always',
+		// posthog-js defaults persistence to 'localStorage+cookie' and sets a
+		// `ph_<token>_posthog` cookie. cookieless_mode is meant to suppress that,
+		// but pin persistence to memory explicitly so no cookie or localStorage
+		// entry is ever written — that "nothing touches the device" property is
+		// what lets analytics run under legitimate interest without a consent gate.
+		persistence: 'memory',
+		// Defense in depth: reject every event except the one manual pageview
+		// below and remove query strings/fragments from URL-like properties.
+		before_send(event) {
+			if (!event || event.event !== '$pageview') return null;
+			event.properties.$current_url = withoutQuery(event.properties.$current_url);
+			event.properties.$referrer = withoutQuery(event.properties.$referrer);
+			event.properties.$initial_current_url = withoutQuery(event.properties.$initial_current_url);
+			event.properties.$initial_referrer = withoutQuery(event.properties.$initial_referrer);
+			return event;
+		}
 	});
 	started = true;
 }
 
 export function capturePageview(): void {
-	if (started) posthog.capture('$pageview');
-}
-
-/** Tie analytics to a signed-in user so "who signed up" maps to behaviour. */
-export function identifyUser(id: string, email?: string): void {
-	if (started) posthog.identify(id, email ? { email } : undefined);
-}
-
-export function resetAnalytics(): void {
-	if (started) posthog.reset();
+	if (started && consent !== 'rejected') {
+		// Exclude ticker selections in the query string from analytics.
+		const url = `${window.location.origin}${window.location.pathname}`;
+		const now = Date.now();
+		// onMount and SvelteKit's initial afterNavigate can run back-to-back.
+		if (lastPageview.url === url && now - lastPageview.at < 1_000) return;
+		lastPageview = { url, at: now };
+		posthog.capture('$pageview', { $current_url: url });
+	}
 }
