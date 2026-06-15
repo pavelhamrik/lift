@@ -8,16 +8,19 @@
 		onAllow: () => void;
 		/** Dismiss without changing the current choice (the ✕, Esc, and "Got it"). */
 		onDismiss: () => void;
+		/** Focus the ✕ on mount — set only when opened from the menu, not the passive first-run notice. */
+		autoFocus?: boolean;
 	};
 
-	let { optedOut, onOptOut, onAllow, onDismiss }: Props = $props();
+	let { optedOut, onOptOut, onAllow, onDismiss, autoFocus = false }: Props = $props();
 
 	let dismissButton = $state<HTMLButtonElement | null>(null);
 
-	// Move focus to the ✕ when the panel appears, so keyboard and screen-reader
-	// users land inside it on the non-destructive control.
+	// When opened from the menu, move focus to the ✕ so keyboard and screen-reader
+	// users land inside the panel on the non-destructive control. The first-run
+	// notice appears unsolicited, so it must not steal focus on page load.
 	$effect(() => {
-		dismissButton?.focus();
+		if (autoFocus) dismissButton?.focus();
 	});
 
 	function onKeydown(event: KeyboardEvent) {
@@ -64,10 +67,10 @@
 
 	<p class="pr-7 text-sm leading-relaxed">
 		{#if optedOut}
-			You’ve opted out of anonymous usage data collection.
+			You’ve opted out of anonymous usage analytics.
 		{:else}
-			We use anonymous usage data to help improve the app. We don’t use cookies, collect personal
-			data, or track you across websites.
+			We use privacy-friendly, cookieless analytics to help improve the app. We don’t track you
+			across websites or sell your data.
 		{/if}
 		<a href={resolve('/privacy')} class="text-(--color-foreground) underline underline-offset-2">
 			Privacy details

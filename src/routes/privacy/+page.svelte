@@ -85,7 +85,7 @@
 				Where European data-protection law applies, cookieless analytics relies on Lift’s legitimate
 				interest in understanding aggregate usage. Because no information is stored on or read from
 				your device, it runs without a consent banner, and you can object — opt out — at any time
-				using <strong>Analytics settings</strong>. Sign-in and saved comparisons are processed to
+				using <strong>Privacy settings</strong>. Sign-in and saved comparisons are processed to
 				provide the service you request. Service delivery, security, rate limiting, and
 				troubleshooting also rely on legitimate interests, and some processing may be required by
 				law. Lift does not use personal data for targeted advertising.
@@ -112,7 +112,7 @@
 				Lift stores your analytics choice, the policy version, and the time of your choice in local
 				storage so it does not repeatedly ask you and so it can honor an opt-out. This record is not
 				sent to Lift or PostHog. You can opt out, or opt back in, at any time using <strong
-					>Analytics settings</strong
+					>Privacy settings</strong
 				>. You can also clear cookies and local storage through your browser; doing so will sign you
 				out and reset local preferences.
 			</p>
@@ -171,7 +171,7 @@
 			<h2 class="mb-2 text-lg font-semibold tracking-tight">9. Your choices and rights</h2>
 			<p>
 				You can use Lift without an account, delete individual saved comparisons in the app, sign
-				out, opt out of analytics using <strong>Analytics settings</strong>, and clear local browser
+				out, opt out of analytics using <strong>Privacy settings</strong>, and clear local browser
 				data at any time. Opting out stops future analytics but does not affect processing that
 				occurred before you opted out. Depending on where you live, you may also have rights to
 				access, correct, delete, restrict, or receive your personal data, or object to certain

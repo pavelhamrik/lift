@@ -89,5 +89,6 @@
 		onOptOut={() => chooseAndClose('rejected')}
 		onAllow={() => chooseAndClose('accepted')}
 		onDismiss={dismissPanel}
+		autoFocus={analyticsPanel.open}
 	/>
 {/if}

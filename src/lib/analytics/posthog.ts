@@ -1,6 +1,10 @@
 import posthog from 'posthog-js';
 import { browser } from '$app/environment';
 import { PUBLIC_POSTHOG_KEY, PUBLIC_POSTHOG_HOST } from '$env/static/public';
+import { sanitizePageviewProperties, resolveStoredConsent } from './scrub.js';
+import type { AnalyticsConsent, StoredConsent } from './scrub.js';
+
+export type { AnalyticsConsent };
 
 // Analytics are fully optional and env-gated: with no PUBLIC_POSTHOG_KEY set
 // (e.g. local dev, or before the PostHog project exists) every function here
@@ -13,26 +17,19 @@ import { PUBLIC_POSTHOG_KEY, PUBLIC_POSTHOG_HOST } from '$env/static/public';
 // on or read from the device), ePrivacy Art. 5(3) consent is not triggered, and
 // the transient processing runs under GDPR legitimate interest. Pageviews
 // therefore flow by default and stop only when the visitor stores a 'rejected'
-// choice via Analytics settings.
+// choice via Privacy settings.
 //
 // Read via $env/static/public (inlined at build) rather than /dynamic/public:
 // on the Cloudflare adapter, dynamic public env is read from the Worker's
 // *runtime* environment, but the PostHog key — like the Supabase config — is
 // supplied as a Cloudflare *build* env var, so dynamic reads resolve to
 // undefined in production and analytics silently never initialise.
-export type AnalyticsConsent = 'accepted' | 'rejected' | 'unset';
 
 const CONSENT_STORAGE_KEY = 'lift:analytics-consent';
 const CONSENT_VERSION = 1;
 let started = false;
 let consent: AnalyticsConsent = 'unset';
 let lastPageview = { url: '', at: 0 };
-
-type StoredConsent = {
-	version: number;
-	choice: Exclude<AnalyticsConsent, 'unset'>;
-	updatedAt: string;
-};
 
 export function isAnalyticsConfigured(): boolean {
 	return Boolean(PUBLIC_POSTHOG_KEY);
@@ -41,13 +38,12 @@ export function isAnalyticsConfigured(): boolean {
 export function getAnalyticsConsent(): AnalyticsConsent {
 	if (!browser || !isAnalyticsConfigured()) return 'unset';
 	try {
-		const raw = localStorage.getItem(CONSENT_STORAGE_KEY);
-		if (!raw) return 'unset';
-		const stored = JSON.parse(raw) as Partial<StoredConsent>;
-		if (stored.version !== CONSENT_VERSION) return 'unset';
-		if (stored.choice !== 'accepted' && stored.choice !== 'rejected') return 'unset';
-		consent = stored.choice;
-		return consent;
+		const resolved = resolveStoredConsent(
+			localStorage.getItem(CONSENT_STORAGE_KEY),
+			CONSENT_VERSION
+		);
+		if (resolved !== 'unset') consent = resolved;
+		return resolved;
 	} catch {
 		return 'unset';
 	}
@@ -65,16 +61,6 @@ export function setAnalyticsConsent(choice: Exclude<AnalyticsConsent, 'unset'>):
 		localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify(stored));
 	} catch {
 		// Keep the in-memory choice for this visit if browser storage is unavailable.
-	}
-}
-
-function withoutQuery(value: unknown): unknown {
-	if (typeof value !== 'string' || !value) return value;
-	try {
-		const url = new URL(value, window.location.origin);
-		return `${url.origin}${url.pathname}`;
-	} catch {
-		return value.split('?')[0].split('#')[0];
 	}
 }
 
@@ -96,7 +82,11 @@ export function initAnalytics(): void {
 		disable_session_recording: true,
 		disable_surveys: true,
 		disable_web_experiments: true,
+		// advanced_disable_feature_flags turns off flag *evaluation*, but the
+		// /flags + remote-config network request is gated separately — disable
+		// that too so a fresh load makes no request beyond the manual pageview.
 		advanced_disable_feature_flags: true,
+		advanced_disable_flags: true,
 		person_profiles: 'never',
 		cookieless_mode: 'always',
 		// posthog-js defaults persistence to 'localStorage+cookie' and sets a
@@ -106,13 +96,11 @@ export function initAnalytics(): void {
 		// what lets analytics run under legitimate interest without a consent gate.
 		persistence: 'memory',
 		// Defense in depth: reject every event except the one manual pageview
-		// below and remove query strings/fragments from URL-like properties.
+		// below, scrub query strings/fragments from URL-like properties, and
+		// drop campaign/ad-click identifiers posthog-js pulls from the URL.
 		before_send(event) {
 			if (!event || event.event !== '$pageview') return null;
-			event.properties.$current_url = withoutQuery(event.properties.$current_url);
-			event.properties.$referrer = withoutQuery(event.properties.$referrer);
-			event.properties.$initial_current_url = withoutQuery(event.properties.$initial_current_url);
-			event.properties.$initial_referrer = withoutQuery(event.properties.$initial_referrer);
+			event.properties = sanitizePageviewProperties(event.properties);
 			return event;
 		}
 	});
