@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Popover } from 'bits-ui';
+	import { resolve } from '$app/paths';
 	import type { SupabaseClient, User } from '@supabase/supabase-js';
 	import type { StoredSelection } from '$lib/selection.js';
 	import { cn } from '$lib/utils.js';
@@ -145,7 +146,7 @@
 			sideOffset={6}
 			align="end"
 			class={cn(
-				'z-50 w-[20rem] max-h-[min(80vh,30rem)] overflow-y-auto',
+				'z-50 max-h-[min(80vh,30rem)] w-[20rem] overflow-y-auto',
 				'rounded-[var(--radius)] border shadow-md outline-none',
 				'bg-(--color-popover) text-(--color-popover-foreground)',
 				'border-(--color-border) p-3'
@@ -156,8 +157,8 @@
 					<div class="space-y-1.5">
 						<div class="text-sm font-medium">Check your inbox</div>
 						<p class="text-xs text-(--color-muted-foreground)">
-							We sent a sign-in link to <span class="text-(--color-foreground)">{email}</span>.
-							Open it on this device to finish signing in.
+							We sent a sign-in link to <span class="text-(--color-foreground)">{email}</span>. Open
+							it on this device to finish signing in.
 						</p>
 					</div>
 				{:else}
@@ -191,6 +192,13 @@
 							{#if authError}
 								<p class="text-xs text-(--color-destructive)">{authError}</p>
 							{/if}
+							<p class="text-[11px] leading-relaxed text-(--color-muted-foreground)">
+								By continuing, you agree to the
+								<a href={resolve('/terms')} class="underline underline-offset-2">Terms</a>
+								and acknowledge the
+								<a href={resolve('/privacy')} class="underline underline-offset-2">Privacy Policy</a
+								>.
+							</p>
 							<button
 								type="submit"
 								disabled={sending || !email.trim()}
@@ -198,7 +206,7 @@
 									'inline-flex h-9 items-center justify-center rounded-full border px-4 text-sm font-medium',
 									'bg-(--color-foreground) text-(--color-background) hover:opacity-90',
 									'border-transparent transition-opacity',
-									'disabled:opacity-50 disabled:cursor-not-allowed'
+									'disabled:cursor-not-allowed disabled:opacity-50'
 								)}
 							>
 								{sending ? 'Sending…' : 'Send magic link'}
@@ -248,7 +256,9 @@
 					<div class="h-px bg-(--color-border)"></div>
 
 					<div class="space-y-1.5">
-						<div class="text-[11px] font-medium tracking-wide text-(--color-muted-foreground) uppercase">
+						<div
+							class="text-[11px] font-medium tracking-wide text-(--color-muted-foreground) uppercase"
+						>
 							Saved
 						</div>
 						{#if loadingList}
