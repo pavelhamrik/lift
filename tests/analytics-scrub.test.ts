@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
 	withoutQuery,
 	sanitizePageviewProperties,
+	sanitizeEventProperties,
 	resolveStoredConsent,
 	CAMPAIGN_PROPERTIES
 } from '../src/lib/analytics/scrub.js';
@@ -63,6 +64,35 @@ describe('sanitizePageviewProperties', () => {
 
 	it('returns undefined input unchanged', () => {
 		expect(sanitizePageviewProperties(undefined)).toBeUndefined();
+	});
+});
+
+describe('sanitizeEventProperties', () => {
+	it('keeps deliberately-attached event props but scrubs the auto-attached URL', () => {
+		// posthog-js auto-attaches $current_url to a product event fired from the
+		// chart page, where it carries the ?stocks=…&compares=… ticker query string.
+		const props = sanitizeEventProperties({
+			symbol: 'AAPL',
+			kind: 'stock',
+			$current_url: 'https://lift.app/?stocks=AAPL,MSFT&compares=SPY',
+			fbclid: 'def',
+			utm_source: 'newsletter',
+			$browser: 'Chrome'
+		});
+		// The event-specific data the call site attached survives...
+		expect(props.symbol).toBe('AAPL');
+		expect(props.kind).toBe('stock');
+		// ...the URL is reduced to origin + path (ticker query dropped)...
+		expect(props.$current_url).toBe('https://lift.app/');
+		// ...campaign/ad-click identifiers are removed...
+		expect(props.fbclid).toBeUndefined();
+		expect(props.utm_source).toBeUndefined();
+		// ...and disclosed technical context is kept.
+		expect(props.$browser).toBe('Chrome');
+	});
+
+	it('returns undefined input unchanged', () => {
+		expect(sanitizeEventProperties(undefined)).toBeUndefined();
 	});
 });
 

@@ -1,7 +1,11 @@
 import posthog from 'posthog-js';
 import { browser } from '$app/environment';
 import { PUBLIC_POSTHOG_KEY, PUBLIC_POSTHOG_HOST } from '$env/static/public';
-import { sanitizePageviewProperties, resolveStoredConsent } from './scrub.js';
+import {
+	sanitizePageviewProperties,
+	sanitizeEventProperties,
+	resolveStoredConsent
+} from './scrub.js';
 import type { AnalyticsConsent, StoredConsent } from './scrub.js';
 
 export type { AnalyticsConsent };
@@ -10,8 +14,13 @@ export type { AnalyticsConsent };
 // (e.g. local dev, or before the PostHog project exists) every function here
 // is a no-op, so the app ships and runs identically with or without it.
 //
-// Keep collection deliberately minimal: anonymous, cookieless pageviews only.
-// In particular, do not call identify() or send account IDs/email addresses.
+// Keep collection deliberately minimal and anonymous: cookieless pageviews plus
+// a small allowlist of product events (PRODUCT_EVENTS below) — e.g. which ticker
+// a visitor adds, removes, or searches for without a match, and which range they
+// pick. Property values stay to bounded tickers and enum-like labels. In
+// particular, never call identify() or send account IDs, email addresses, or
+// free-text input. Widening collection means editing PRODUCT_EVENTS *and* the
+// privacy policy together — the allowlist is the single seam that gates the wire.
 //
 // Consent model is opt-out: because collection is cookieless (nothing is stored
 // on or read from the device), ePrivacy Art. 5(3) consent is not triggered, and
@@ -26,7 +35,30 @@ export type { AnalyticsConsent };
 // undefined in production and analytics silently never initialise.
 
 const CONSENT_STORAGE_KEY = 'lift:analytics-consent';
+// Bump this only when collection expands materially *after* visitors exist:
+// resolveStoredConsent re-confirms past acceptances on a bump (the first-run
+// notice reappears once, under the new scope) while an explicit opt-out persists
+// untouched. Stays 1 — the product-event allowlist below is part of the initial
+// published policy, so there is no prior, narrower acceptance to re-confirm.
 const CONSENT_VERSION = 1;
+
+// Allowlist of anonymous product events before_send will forward; every other
+// event (autocapture leftovers, $feature_flag_called, etc.) is dropped on the
+// wire. This set is the single gate on what leaves the browser — adding an entry
+// is the deliberate act of widening collection, and must move with the privacy
+// policy.
+const PRODUCT_EVENTS = new Set([
+	'symbol_added',
+	'symbol_removed',
+	'search_no_results',
+	'range_changed',
+	'selection_shared',
+	'selection_reset',
+	'selection_saved',
+	'selection_loaded',
+	'load_error'
+]);
+
 let started = false;
 let consent: AnalyticsConsent = 'unset';
 let lastPageview = { url: '', at: 0 };
@@ -95,12 +127,18 @@ export function initAnalytics(): void {
 		// entry is ever written — that "nothing touches the device" property is
 		// what lets analytics run under legitimate interest without a consent gate.
 		persistence: 'memory',
-		// Defense in depth: reject every event except the one manual pageview
-		// below, scrub query strings/fragments from URL-like properties, and
-		// drop campaign/ad-click identifiers posthog-js pulls from the URL.
+		// Defense in depth: forward only the manual pageview and the explicit
+		// product-event allowlist, scrub query strings/fragments from URL-like
+		// properties, and drop campaign/ad-click identifiers posthog-js pulls
+		// from the URL. Anything off the allowlist is dropped here on the wire.
 		before_send(event) {
-			if (!event || event.event !== '$pageview') return null;
-			event.properties = sanitizePageviewProperties(event.properties);
+			if (!event) return null;
+			if (event.event === '$pageview') {
+				event.properties = sanitizePageviewProperties(event.properties);
+				return event;
+			}
+			if (!PRODUCT_EVENTS.has(event.event)) return null;
+			event.properties = sanitizeEventProperties(event.properties);
 			return event;
 		}
 	});
@@ -119,13 +157,13 @@ export function capturePageview(): void {
 	}
 }
 
-/**
- * Capture a product event (e.g. a symbol add). Consent-gated like the pageview.
- * Note: the privacy-hardened `before_send` above forwards only `$pageview`, so
- * these events are currently dropped on the wire — the call sites are kept for
- * intent, and product analytics re-enables in one place (loosen `before_send`,
- * extend the scrub, and update the privacy copy) if it's ever wanted.
- */
-export function captureEvent(name: string, props?: Record<string, unknown>): void {
-	if (started && consent !== 'rejected') posthog.capture(name, props);
+// Capture an anonymous product event. Like capturePageview, it's a no-op unless
+// analytics initialised (PUBLIC_POSTHOG_KEY present and not opted out), so call
+// sites need no guard of their own. `name` must be one of PRODUCT_EVENTS or
+// before_send drops it; keep `properties` to bounded tickers and enum-like labels
+// — never account IDs, email addresses, or free-text input.
+export function captureEvent(name: string, properties?: Record<string, unknown>): void {
+	if (started && consent !== 'rejected') {
+		posthog.capture(name, properties);
+	}
 }

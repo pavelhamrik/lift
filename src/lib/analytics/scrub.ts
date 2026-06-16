@@ -63,12 +63,16 @@ function deleteCampaignKeys(bag: unknown): void {
 	}
 }
 
-// Scrub a $pageview event's properties in place: strip query/fragment from
-// URL-like values and remove campaign/ad-click identifiers, including any that
-// posthog-js stashed under $set / $set_once or behind an $initial_ prefix.
-export function sanitizePageviewProperties<T extends Record<string, unknown> | undefined>(
-	properties: T
-): T {
+// Scrub an event's properties in place: strip query/fragment from URL-like
+// values and remove campaign/ad-click identifiers, including any that posthog-js
+// stashed under $set / $set_once or behind an $initial_ prefix. Applied to every
+// event we forward — the manual $pageview and the product-event allowlist alike —
+// so the only event-specific data that leaves the browser is what a call site
+// deliberately attaches (a ticker symbol, a range label). In particular the
+// $current_url posthog-js auto-attaches to product events fired from the chart
+// page would otherwise carry the ?stocks=…&compares=… ticker query string; this
+// reduces it to origin + path.
+function scrubProperties<T extends Record<string, unknown> | undefined>(properties: T): T {
 	if (!properties) return properties;
 	const record = properties as Record<string, unknown>;
 	for (const key of URL_PROPERTIES) {
@@ -79,6 +83,12 @@ export function sanitizePageviewProperties<T extends Record<string, unknown> | u
 	deleteCampaignKeys(record.$set_once);
 	return properties;
 }
+
+// Named entry points for the two event classes we forward. They scrub
+// identically today; keeping them distinct documents intent at each call site and
+// leaves room to diverge later (e.g. a per-event property allowlist).
+export const sanitizePageviewProperties = scrubProperties;
+export const sanitizeEventProperties = scrubProperties;
 
 // Resolve a stored consent record into an effective choice. An explicit opt-out
 // ('rejected') PERSISTS across consent-version changes — a policy update must

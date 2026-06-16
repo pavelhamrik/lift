@@ -258,6 +258,14 @@
 				{/snippet}
 			</DropdownMenu.Item>
 
+			<DropdownMenu.Item class={itemClass}>
+				{#snippet child({ props })}
+					<a href={resolve('/about')} {...props}>
+						<span>About</span>
+					</a>
+				{/snippet}
+			</DropdownMenu.Item>
+
 			<DropdownMenu.Separator class="my-1 h-px bg-(--color-border)" />
 
 			<DropdownMenu.Item class={itemClass}>

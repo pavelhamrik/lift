@@ -148,18 +148,6 @@
 			</p>
 		</div>
 	</section>
-
-	<footer class="flex gap-4 border-t pt-6 text-sm text-(--color-muted-foreground)">
-		<a href={resolve('/terms')} class="underline underline-offset-2 hover:text-(--color-foreground)"
-			>Terms</a
-		>
-		<a
-			href={resolve('/privacy')}
-			class="underline underline-offset-2 hover:text-(--color-foreground)"
-		>
-			Privacy
-		</a>
-	</footer>
 </div>
 
 <style>

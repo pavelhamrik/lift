@@ -3,6 +3,7 @@
 	import { resolve } from '$app/paths';
 	import type { SupabaseClient, User } from '@supabase/supabase-js';
 	import { parseSelection, type StoredSelection } from '$lib/selection.js';
+	import { captureEvent } from '$lib/analytics/posthog.js';
 	import { cn } from '$lib/utils.js';
 
 	// `selection` is whatever JSON was stored — validate it before trusting the
@@ -86,6 +87,7 @@
 	async function saveCurrent() {
 		if (!user) return;
 		const name = saveName.trim() || defaultName();
+		const named = saveName.trim().length > 0;
 		saving = true;
 		saveError = null;
 		const { error } = await supabase
@@ -96,6 +98,13 @@
 			saveError = error.message;
 			return;
 		}
+		// Anonymous: shape of the saved view and whether it was given a custom name,
+		// never the name itself (free text → potential PII).
+		captureEvent('selection_saved', {
+			symbols: selection.symbols.length,
+			range: selection.range,
+			named
+		});
 		saveName = '';
 		await loadList();
 	}
@@ -111,6 +120,11 @@
 			listError = 'That saved view is no longer valid.';
 			return;
 		}
+		// Anonymous: shape of the loaded view only, never its name.
+		captureEvent('selection_loaded', {
+			symbols: parsed.symbols.length,
+			range: parsed.range
+		});
 		onLoad(parsed);
 		open = false;
 	}

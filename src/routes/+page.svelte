@@ -82,7 +82,10 @@
 	let symbolMeta = $state<Record<string, SymbolMeta>>({});
 
 	let loading = $state(false);
-	type LoadError = { title: string; detail: string; retryable: boolean };
+	// `reason` is a stable, enum-like code (not the human-readable title/detail) so
+	// it can ride the load_error analytics event without leaking raw messages.
+	type LoadErrorReason = 'rate_limited' | 'bad_request' | 'provider_down' | 'network' | 'unknown';
+	type LoadError = { title: string; detail: string; retryable: boolean; reason: LoadErrorReason };
 	let loadError = $state<LoadError | null>(null);
 	// Bumped per request so only the most recent load commits its result.
 	let loadSeq = 0;
@@ -274,6 +277,7 @@
 			/* clipboard may be blocked; the link is still live in the address bar */
 		}
 		shareCopied = true;
+		captureEvent('selection_shared', { symbols: symbols.length });
 		if (shareTimer) clearTimeout(shareTimer);
 		shareTimer = setTimeout(() => {
 			shareCopied = false;
@@ -296,14 +300,16 @@
 				title: 'Too many requests',
 				detail:
 					'You’ve sent a lot of requests in a short time. Wait a few seconds, then try again.',
-				retryable: true
+				retryable: true,
+				reason: 'rate_limited'
 			};
 		}
 		if (status === 400) {
 			return {
 				title: 'Check your selection',
 				detail: msg || 'One of the selected symbols isn’t supported.',
-				retryable: false
+				retryable: false,
+				reason: 'bad_request'
 			};
 		}
 		if (status >= 500) {
@@ -311,13 +317,15 @@
 				title: 'Couldn’t reach the data provider',
 				detail:
 					'The market-data source didn’t respond, or none of these symbols had data over this range. This is usually temporary, try again in a moment.',
-				retryable: true
+				retryable: true,
+				reason: 'provider_down'
 			};
 		}
 		return {
 			title: 'Something went wrong',
 			detail: msg || 'An unexpected error occurred. Please try again.',
-			retryable: true
+			retryable: true,
+			reason: 'unknown'
 		};
 	}
 
@@ -365,6 +373,7 @@
 				const body = await r.text();
 				if (seq !== loadSeq) return;
 				loadError = describeError(r.status, body);
+				captureEvent('load_error', { reason: loadError.reason });
 				data = null;
 				return;
 			}
@@ -387,8 +396,10 @@
 				loadError = {
 					title: 'Connection problem',
 					detail: 'Couldn’t reach the server. Check your connection and try again.',
-					retryable: true
+					retryable: true,
+					reason: 'network'
 				};
+				captureEvent('load_error', { reason: loadError.reason });
 				data = null;
 			}
 		} finally {
@@ -491,20 +502,20 @@
 	function removeSymbol(sym: string) {
 		if (symbols.length <= 1) return;
 		symbols = symbols.filter((x) => x !== sym);
-		captureEvent('symbol_removed');
+		captureEvent('symbol_removed', { symbol: sym });
 		void load();
 	}
 
 	function setBasis(next: ReturnBasis) {
 		if (next === basis) return;
 		basis = next;
-		captureEvent('return_basis_changed', { basis: next });
 		void load();
 	}
 
 	function resetSelection() {
 		symbols = [...DEFAULT_SYMBOLS];
 		basis = DEFAULT_BASIS;
+		captureEvent('selection_reset');
 		void load();
 	}
 
@@ -688,6 +699,7 @@
 							: 'text-(--color-muted-foreground) hover:bg-(--color-accent) hover:text-(--color-foreground)'
 					)}
 					onclick={(e) => {
+						if (range !== r) captureEvent('range_changed', { range: r });
 						range = r;
 						(e.currentTarget as HTMLButtonElement).blur();
 						void load();

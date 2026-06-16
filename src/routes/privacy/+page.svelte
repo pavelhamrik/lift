@@ -29,7 +29,7 @@
 <div class="mx-auto max-w-3xl px-4 py-10 sm:px-6">
 	<div class="mb-10">
 		<h1 class="text-3xl font-semibold tracking-tight">Privacy policy</h1>
-		<p class="mt-1 text-sm text-(--color-muted-foreground)">Effective June 13, 2026</p>
+		<p class="mt-1 text-sm text-(--color-muted-foreground)">Effective June 16, 2026</p>
 	</div>
 
 	<div class="space-y-8 text-sm leading-relaxed">
@@ -64,12 +64,17 @@
 					rate limiting, security, and debugging.
 				</li>
 				<li>
-					<strong>Usage measurement (anonymous), unless you opt out:</strong> one cookieless pageview
-					event when a page loads or you navigate within Lift. Lift explicitly sends the page origin and
-					path without query parameters. PostHog may attach standard technical context such as the timestamp,
-					referring domain, browser, operating system, device type, language, and screen size. In cookieless
-					server hash mode, PostHog transiently uses the IP address, user agent, hostname, and a daily
-					salt to count visitors, then strips the IP address before event enrichment and storage.
+					<strong>Usage measurement (anonymous), unless you opt out:</strong> a cookieless pageview event
+					when a page loads or you navigate within Lift, plus a small set of anonymous product events
+					about how Lift’s features are used — the ticker symbols you add, remove, or search for without
+					a match, the time range you select, when you share, save, load, or reset a comparison, and when
+					a comparison can’t be charted. These events carry only the symbol or range involved, basic counts,
+					and — for an error — a coarse reason code; never your identity or the names you give saved comparisons.
+					Lift sends page origin and path without query parameters, and never the ticker selections held
+					in the page URL. PostHog may attach standard technical context such as the timestamp, referring
+					domain, browser, operating system, device type, language, and screen size. In cookieless server
+					hash mode, PostHog transiently uses the IP address, user agent, hostname, and a daily salt to
+					count visitors, then strips the IP address before event enrichment and storage.
 				</li>
 				<li>
 					<strong>Local preferences:</strong> theme, current chart selections, and your analytics choice
@@ -84,7 +89,7 @@
 			<ul class="list-disc space-y-2 pl-5">
 				<li>Provide sign-in and saved comparisons at your request.</li>
 				<li>Deliver, secure, rate-limit, maintain, and troubleshoot the service.</li>
-				<li>Understand aggregate page usage so Lift can be improved.</li>
+				<li>Understand aggregate page and feature usage so Lift can be improved.</li>
 				<li>Comply with law and respond to valid legal requests.</li>
 			</ul>
 			<p class="mt-3">
@@ -110,9 +115,13 @@
 				Lift’s analytics run in cookieless mode. PostHog does not store analytics identifiers in
 				cookies or local/session storage. Autocapture, page-leave capture, session recording,
 				exception capture, surveys, experiments, feature flags, and account identification are
-				disabled. Lift does not send clicks, form contents, input values, saved comparisons, account
-				IDs, email addresses, or ticker query parameters to PostHog. If you opt out, Lift stops
-				sending pageviews.
+				disabled. Lift does not send autocaptured clicks, form contents, raw keystrokes, saved
+				comparisons, account IDs, or email addresses to PostHog, and it strips query strings —
+				including the ticker selections held in the page URL — from the URLs it reports. Lift does
+				send a small allowlist of anonymous product events (described above), each carrying only the
+				ticker symbol or range involved, basic counts, or a coarse error reason — never the names
+				you give saved comparisons, account IDs, or email addresses. If you opt out, Lift stops
+				sending both pageviews and product events.
 			</p>
 			<p class="mt-3">
 				Lift stores your analytics choice, the policy version, and the time of your choice in local
@@ -134,7 +143,10 @@
 				<li>
 					<strong>Supabase</strong> for email authentication, sessions, and saved comparisons.
 				</li>
-				<li><strong>PostHog EU</strong> for anonymous, cookieless pageview measurement.</li>
+				<li>
+					<strong>PostHog EU</strong> for anonymous, cookieless usage analytics — pageviews and basic
+					product events.
+				</li>
 				<li><strong>Yahoo Finance</strong> as the market-data source.</li>
 			</ul>
 			<p class="mt-3">
@@ -205,13 +217,4 @@
 			</p>
 		</section>
 	</div>
-
-	<footer class="mt-10 flex gap-4 border-t pt-6 text-sm text-(--color-muted-foreground)">
-		<a href={resolve('/terms')} class="underline underline-offset-2 hover:text-(--color-foreground)"
-			>Terms</a
-		>
-		<a href={resolve('/docs')} class="underline underline-offset-2 hover:text-(--color-foreground)"
-			>Docs</a
-		>
-	</footer>
 </div>

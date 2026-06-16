@@ -216,7 +216,7 @@
 	}
 
 	function addResult(result: SymbolSearchResult, source: Source) {
-		captureEvent('symbol_added', { source, asset: result.asset });
+		captureEvent('symbol_added', { symbol: result.symbol, source, asset: result.asset });
 		onAdd(result);
 		reset();
 		// Added — close the dropdown and release focus rather than staying open
