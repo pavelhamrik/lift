@@ -3,6 +3,8 @@
 A small SvelteKit web app that overlays a US-listed stock against a benchmark
 index/ETF on a single normalized-percent chart, with the target's volume in a sub-pane.
 
+**Live at [lift.grubs.cc](https://lift.grubs.cc).**
+
 - **Range**: 1D / 5D / 1M / 6M / YTD / 1Y / 5Y / MAX (default 1Y). Intraday
   ranges use 1-minute or 5-minute bars; daily ranges use daily bars; 5Y uses
   weekly; MAX uses monthly — all routed through the same `HistoryRequest`

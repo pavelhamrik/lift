@@ -24,3 +24,6 @@ vite.config.ts.timestamp-*
 
 # Generated Workers types
 worker-configuration.d.ts
+
+# Local tooling
+.superset/
