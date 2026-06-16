@@ -126,16 +126,4 @@
 			</p>
 		</section>
 	</div>
-
-	<footer class="mt-10 flex gap-4 border-t pt-6 text-sm text-(--color-muted-foreground)">
-		<a
-			href={resolve('/privacy')}
-			class="underline underline-offset-2 hover:text-(--color-foreground)"
-		>
-			Privacy Policy
-		</a>
-		<a href={resolve('/docs')} class="underline underline-offset-2 hover:text-(--color-foreground)"
-			>Docs</a
-		>
-	</footer>
 </div>
