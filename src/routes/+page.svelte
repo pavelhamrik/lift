@@ -18,6 +18,7 @@
 	import Logo from '$lib/components/ui/Logo.svelte';
 	import OverflowMenu from '$lib/components/ui/OverflowMenu.svelte';
 	import { RANGES, type Range } from '$lib/providers/types.js';
+	import { captureEvent } from '$lib/analytics/posthog.js';
 	import { cn } from '$lib/utils.js';
 	import {
 		parseSelectionParams,
@@ -64,7 +65,16 @@
 	let stockInput = $state('');
 	let stockInputError = $state<string | null>(null);
 	let loading = $state(false);
-	type LoadError = { title: string; detail: string; retryable: boolean };
+	// `reason` is a stable, enum-like code (not the human-readable title/detail) so
+	// it can ride the load_error analytics event without leaking raw messages.
+	type LoadErrorReason =
+		| 'no_overlap'
+		| 'rate_limited'
+		| 'bad_request'
+		| 'provider_down'
+		| 'network'
+		| 'unknown';
+	type LoadError = { title: string; detail: string; retryable: boolean; reason: LoadErrorReason };
 	let loadError = $state<LoadError | null>(null);
 	// Bumped per request so only the most recent load commits its result.
 	let loadSeq = 0;
@@ -240,6 +250,7 @@
 		} catch {
 			/* clipboard may be blocked; the link is still live in the address bar */
 		}
+		captureEvent('selection_shared', { stocks: stocks.length, compares: compares.length });
 		shareCopied = true;
 		if (shareTimer) clearTimeout(shareTimer);
 		shareTimer = setTimeout(() => {
@@ -263,7 +274,8 @@
 				title: 'No overlapping history',
 				detail:
 					'These symbols don’t share enough common trading days over this range. Try a longer range, or remove one of them.',
-				retryable: false
+				retryable: false,
+				reason: 'no_overlap'
 			};
 		}
 		if (status === 429) {
@@ -271,14 +283,16 @@
 				title: 'Too many requests',
 				detail:
 					'You’ve sent a lot of requests in a short time. Wait a few seconds, then try again.',
-				retryable: true
+				retryable: true,
+				reason: 'rate_limited'
 			};
 		}
 		if (status === 400) {
 			return {
 				title: 'Check your selection',
 				detail: msg || 'One of the selected symbols isn’t supported.',
-				retryable: false
+				retryable: false,
+				reason: 'bad_request'
 			};
 		}
 		if (status >= 500) {
@@ -286,13 +300,15 @@
 				title: 'Couldn’t reach the data provider',
 				detail:
 					'The market-data source didn’t respond. This is usually temporary, try again in a moment.',
-				retryable: true
+				retryable: true,
+				reason: 'provider_down'
 			};
 		}
 		return {
 			title: 'Something went wrong',
 			detail: msg || 'An unexpected error occurred. Please try again.',
-			retryable: true
+			retryable: true,
+			reason: 'unknown'
 		};
 	}
 
@@ -341,6 +357,9 @@
 				if (seq !== loadSeq) return;
 				loadError = describeError(r.status, body);
 				data = null;
+				// Anonymous product signal: which selections fail to chart (e.g.
+				// no_overlap) vs. transient infra errors. Only the enum reason rides.
+				captureEvent('load_error', { reason: loadError.reason });
 				return;
 			}
 			const next = (await r.json()) as MultiResponse;
@@ -361,9 +380,11 @@
 				loadError = {
 					title: 'Connection problem',
 					detail: 'Couldn’t reach the server. Check your connection and try again.',
-					retryable: true
+					retryable: true,
+					reason: 'network'
 				};
 				data = null;
+				captureEvent('load_error', { reason: loadError.reason });
 			}
 		} finally {
 			inFlight--;
@@ -453,12 +474,14 @@
 		}
 		stocks = [...stocks, v];
 		stockInput = '';
+		captureEvent('symbol_added', { symbol: v, kind: 'stock', source: 'input' });
 		void load();
 	}
 
 	function removeStock(s: string) {
 		if (stocks.length <= 1) return;
 		stocks = stocks.filter((x) => x !== s);
+		captureEvent('symbol_removed', { symbol: s, kind: 'stock' });
 		void load();
 	}
 
@@ -466,11 +489,13 @@
 		if (compares.includes(sym)) return;
 		if (compares.length >= MAX_COMPARES) return;
 		compares = [...compares, sym];
+		captureEvent('symbol_added', { symbol: sym, kind: 'comparison', source: 'benchmark_menu' });
 		void load();
 	}
 
 	function removeCompare(sym: BenchmarkSymbol) {
 		compares = compares.filter((x) => x !== sym);
+		captureEvent('symbol_removed', { symbol: sym, kind: 'comparison' });
 		void load();
 	}
 
@@ -479,6 +504,7 @@
 		compares = [...DEFAULT_COMPARES];
 		stockInput = '';
 		stockInputError = null;
+		captureEvent('selection_reset');
 		void load();
 	}
 
@@ -505,6 +531,9 @@
 			if (r.status === 404) {
 				lookupName = null;
 				lookupStatus = 'notfound';
+				// The symbol a visitor typed that we couldn't resolve — the signal for
+				// which tickers people expect Lift to support.
+				captureEvent('search_no_results', { query: sym });
 				return;
 			}
 			if (!r.ok) {
@@ -811,6 +840,7 @@
 					onclick={(e) => {
 						range = r;
 						(e.currentTarget as HTMLButtonElement).blur();
+						captureEvent('range_changed', { range: r });
 						void load();
 					}}
 				>

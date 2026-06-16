@@ -69,8 +69,9 @@
 		{#if optedOut}
 			You’ve opted out of anonymous usage analytics.
 		{:else}
-			We use privacy-friendly, cookieless analytics to help improve the app. We don’t track you
-			across websites or sell your data.
+			We use privacy-friendly, cookieless analytics — anonymous pageviews and basic usage, like
+			which symbols and ranges get used — to help improve the app. We don’t track you across
+			websites or sell your data.
 		{/if}
 		<a href={resolve('/privacy')} class="text-(--color-foreground) underline underline-offset-2">
 			Privacy details
