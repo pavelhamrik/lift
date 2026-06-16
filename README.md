@@ -10,6 +10,8 @@ Yahoo autocomplete, grouped by type); the default view is AAPL vs SPY. The full
 selection is encoded in the URL for sharing, and signing in (Supabase) saves and
 reloads your selections. Analytics are cookieless and consent-based.
 
+**Live at [lift.grubs.cc](https://lift.grubs.cc).**
+
 - **Range**: 1D / 5D / 1M / 6M / YTD / 1Y / 5Y / MAX (default 1Y). Intraday
   ranges use 1-minute or 5-minute bars; daily ranges use daily bars; 5Y uses
   weekly; MAX uses monthly — all routed through the same `HistoryRequest`
