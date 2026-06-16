@@ -3,6 +3,7 @@
 	import { resolve } from '$app/paths';
 	import type { SupabaseClient, User } from '@supabase/supabase-js';
 	import type { StoredSelection } from '$lib/selection.js';
+	import { captureEvent } from '$lib/analytics/posthog.js';
 	import { cn } from '$lib/utils.js';
 
 	type SavedRow = {
@@ -79,6 +80,7 @@
 	async function saveCurrent() {
 		if (!user) return;
 		const name = saveName.trim() || defaultName();
+		const named = saveName.trim().length > 0;
 		saving = true;
 		saveError = null;
 		const { error } = await supabase
@@ -89,6 +91,14 @@
 			saveError = error.message;
 			return;
 		}
+		// Anonymous: shape of the saved view and whether it was given a custom name,
+		// never the name itself (free text → potential PII).
+		captureEvent('selection_saved', {
+			stocks: selection.stocks.length,
+			compares: selection.compares.length,
+			range: selection.range,
+			named
+		});
 		saveName = '';
 		await loadList();
 	}
@@ -99,6 +109,12 @@
 	}
 
 	function applySaved(row: SavedRow) {
+		// Anonymous: shape of the loaded view only, never its name.
+		captureEvent('selection_loaded', {
+			stocks: row.selection.stocks?.length ?? 0,
+			compares: row.selection.compares?.length ?? 0,
+			range: row.selection.range
+		});
 		onLoad(row.selection);
 		open = false;
 	}
