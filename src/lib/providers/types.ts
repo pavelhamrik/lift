@@ -21,6 +21,16 @@ export type HistoryRequest = {
 export type Country = 'US' | 'OTHER';
 export type Asset = 'EQUITY' | 'ETF' | 'INDEX' | 'OTHER';
 
+/**
+ * Coarse visual treatment for a chart series: `index` → grayscale dashed,
+ * `equity` → colored solid. Derived strictly from the instrument type
+ * (`INDEX → index`, everything else → equity), never user-chosen.
+ */
+export type SeriesKind = 'equity' | 'index';
+
+/** User-chosen dividend-adjustment basis for daily-and-longer ranges. */
+export type ReturnBasis = 'price-only' | 'total-return';
+
 export type InstrumentMeta = {
 	country: Country;
 	asset: Asset;

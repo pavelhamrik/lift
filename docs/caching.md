@@ -16,7 +16,7 @@ JSON is the upstream, fetched directly by the Worker.
 
 ```
 Browser (Svelte SPA, +page.svelte)            static assets, served by the Worker
-        │  GET /api/history-multi?stocks=…&compares=…&range=…
+        │  GET /api/history-multi?symbols=…&basis=…&range=…
         ▼
 Cloudflare Worker  (_worker.js · workerd)      ← "the server": route handlers + caches
         │  getProvider().getHistory(symbol, req)   (once per symbol)
@@ -28,8 +28,9 @@ Yahoo v8 chart JSON  (query1.finance.yahoo.com)   ← upstream
 
 `/api/history-multi` is the endpoint the client calls. In order, a request hits:
 
-1. **Validation** — symbols, range, and per-request limits (`MAX_STOCKS = 8`,
-   `MAX_COMPARES = 8`).
+1. **Validation** — symbols, basis, range, and the per-request limit
+   (`MAX_SYMBOLS = 16`). Over-limit, empty, unknown-symbol, or bad basis/range
+   requests are rejected with `400` (no silent clamping).
 2. **Edge rate limiter** (`RATE_LIMITER` binding) — per-IP, per-CF-location.
    Returns `429` or proceeds. No-op off Workers.
 3. **In-process throttle** — `SlidingWindowThrottle`, 20 requests / 60 s per
@@ -46,20 +47,16 @@ Yahoo v8 chart JSON  (query1.finance.yahoo.com)   ← upstream
 > been a cache hit. This is why the client also cancels superseded requests
 > (see [Client-side cancellation](#client-side-cancellation)).
 
-The single-pair `/api/history` endpoint shares step 6 (the same provider
-singleton), so it benefits from the raw-fetch cache too; it does not use the
-`MultiResponse` LRU (that is multi-specific).
-
 ## The three cache layers
 
 All three live in the Worker. They are checked outermost-first (cheap → costly)
 and populated on the way back out.
 
-| Layer                             | Key                                              | TTL              | Where it lives                  | `X-Cache`  |
-| --------------------------------- | ------------------------------------------------ | ---------------- | ------------------------------- | ---------- |
-| **Edge cache** `caches.default`   | full request URL (`stocks`, `compares`, `range`) | `s-maxage=60`    | per **colo** (data center)      | `edge-hit` |
-| **`MultiResponse` LRU**           | `multi\|stocks\|compares\|range`                 | 60 s, `max: 200` | per **isolate** (module memory) | `lru-hit`  |
-| **Raw-fetch LRU + single-flight** | `symbol\|interval\|includePrePost`               | 60 s, split caps | per **isolate** (module memory) | (internal) |
+| Layer                             | Key                                            | TTL              | Where it lives                  | `X-Cache`  |
+| --------------------------------- | ---------------------------------------------- | ---------------- | ------------------------------- | ---------- |
+| **Edge cache** `caches.default`   | full request URL (`symbols`, `basis`, `range`) | `s-maxage=60`    | per **colo** (data center)      | `edge-hit` |
+| **`MultiResponse` LRU**           | `multi\|symbols\|basis\|range`                 | 60 s, `max: 200` | per **isolate** (module memory) | `lru-hit`  |
+| **Raw-fetch LRU + single-flight** | `symbol\|interval\|includePrePost`             | 60 s, split caps | per **isolate** (module memory) | (internal) |
 
 ### 1. Edge cache (`caches.default`)
 
@@ -73,7 +70,7 @@ LRU so a subsequent same-isolate request skips even the edge lookup.
 ### 2. `MultiResponse` LRU (whole-response, per request shape)
 
 A bounded `LRUCache` (`src/lib/server/cache.ts`) in Worker module scope, keyed by
-the exact `(stocks, compares, range)` tuple. It caches the **fully assembled,
+the exact `(symbols, basis, range)` tuple. It caches the **fully assembled,
 aligned response**. It absorbs _exact repeats_ (auto-refresh polls, reloads,
 two users on the identical selection) but **misses on any change** — add/remove a
 ticker or flip the range and the key changes.

@@ -16,11 +16,10 @@ export const FIXTURE_BUILD_MARKER = 'LIFT_FIXTURE_BUILD_MARKER_7c3f9a21';
 //
 // A "`^…` → index, else equity" heuristic mislabels the non-`^` index
 // benchmarks 000001.SS / 000300.SS as US equities. Instead we drive metadata
-// from an explicit table covering every BENCHMARKS entry: currency + policy
-// come from BENCHMARKS, asset type is declared per symbol (INDEX for every
-// price-only benchmark including the .SS pair, ETF for the total-return ones),
-// and exchange/timezone is assigned here. Unknown (user-typed) symbols fall
-// back to the generic US-equity default.
+// from an explicit table covering every BENCHMARKS entry: currency + the
+// explicit `asset` (INDEX/ETF) come from BENCHMARKS — the .SS pair is declared
+// INDEX there — and exchange/timezone is assigned here. Unknown (user-typed)
+// symbols fall back to the generic US-equity default.
 // ---------------------------------------------------------------------------
 
 type FixtureMeta = {
@@ -72,7 +71,7 @@ function metaFor(symbol: string): FixtureMeta {
 		const b = BENCHMARKS[symbol];
 		const ex = EXCHANGE_BY_SYMBOL[symbol];
 		return {
-			instrumentType: b.policy === 'price-only' ? 'INDEX' : 'ETF',
+			instrumentType: b.asset,
 			exchangeName: ex.exchangeName,
 			currency: b.currency,
 			exchangeTimezoneName: ex.tz

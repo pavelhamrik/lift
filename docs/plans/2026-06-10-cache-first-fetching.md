@@ -14,6 +14,15 @@
   canonical window guarantees coverage, so un-widened intervals must not be cached.
 - **Related:** [2026-06-10-static-data-dev-toggle.md](./2026-06-10-static-data-dev-toggle.md)
 
+> **⚠️ Partly superseded by [2026-06-13-unified-symbol-entry.md](./2026-06-13-unified-symbol-entry.md).**
+> The unification (a) **removed the legacy `/api/history` route** — there is now only
+> `/api/history-multi`; (b) replaced the `(stocks + compares + range)` cache key with
+> **`(symbols + basis + range)`** (a `basis` toggle was added, the stocks/compares split was
+> retired); and (c) folded `MAX_STOCKS`/`MAX_COMPARES` into a single **`MAX_SYMBOLS = 16`**.
+> The **16-symbol × 5-interval = 80-key LRU sizing below stays valid** (16 is preserved exactly).
+> Throughout, read "both history routes" as the single `/api/history-multi`, "stocks/compares" as
+> "symbols," and `MAX_STOCKS`+`MAX_COMPARES` as `MAX_SYMBOLS`.
+
 ## Background
 
 Sources of needless Yahoo calls in the current code:
@@ -24,7 +33,7 @@ Sources of needless Yahoo calls in the current code:
    request still travels client→server and counts against the per-IP throttle, which runs
    **before** the cache lookup (history-multi/+server.ts:174 precedes :192).
 2. **Whole-response caching only:** the server caches the full `MultiResponse` keyed by
-   _(stocks + compares + range)_, so adding/removing one ticker or flipping range refetches
+   _(symbols + basis + range)_, so adding/removing one ticker or flipping range refetches
    **all** symbols from Yahoo, not just the new/changed work.
 3. **No single-flight at the symbol level:** two requests needing the same `(symbol, interval)`
    both fan out to Yahoo.
@@ -124,13 +133,14 @@ export function getProvider(): PriceProvider {
 `getChartFetcher()` is the selector Plan 1 introduces (real `defaultFetch` vs `fixtureFetch`),
 so the two plans compose and there is one source of truth for fetcher selection.
 `makeYahooProvider` / `buildResultFromChart` are unchanged, the contract tests are untouched,
-and **both `/api/history` and `/api/history-multi` keep calling `provider.getHistory` verbatim.**
+and **`/api/history-multi` keeps calling `provider.getHistory` verbatim** (the legacy
+`/api/history` route was removed by the unification plan).
 The decorator sits beneath the existing endpoint-level `MultiResponse` LRU + edge cache, so it
 only does work when those miss (range flip, add/remove ticker) but a per-symbol raw is warm.
 
 **Memory + working-set bound (review #4):** the hot working set is bounded by the endpoint's own
-limits — `MAX_STOCKS = 8` + `MAX_COMPARES = 8` = **16 symbols** per request
-(history-multi:28-29) — times the **5 intervals** (`1m/5m/1d/1wk/1mo`). `session` is currently
+limit — a single **`MAX_SYMBOLS = 16`** per request (the old `MAX_STOCKS 8` + `MAX_COMPARES 8`,
+unchanged total; now declared in `selection.ts`) — times the **5 intervals** (`1m/5m/1d/1wk/1mo`). `session` is currently
 **hardcoded `'regular'`** (history-multi:103), so `includePrePost` is always `false` and the key
 is effectively `(symbol, interval)` today (we still keep `session` in the key for forward-safety).
 That makes the worst-case full sweep **16 × 5 = 80 distinct keys** within one TTL. **`max: 64` is

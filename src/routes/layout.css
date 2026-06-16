@@ -3,6 +3,26 @@
 
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
+/* Hide the scrollbar while keeping horizontal scroll/swipe functional. */
+@utility no-scrollbar {
+	scrollbar-width: none; /* Firefox */
+	-ms-overflow-style: none; /* legacy Edge/IE */
+	&::-webkit-scrollbar {
+		display: none; /* WebKit (Chrome/Safari) */
+	}
+}
+
+/* shadcn-style focus treatment: soft 3px ring + border tint, no outline —
+   mirrors shadcn-svelte's Input/Button focus-visible classes. Lives in the
+   utilities layer so it overrides the @layer base focus fallback below. */
+@utility focus-ring {
+	&:focus-visible {
+		outline: none;
+		border-color: var(--color-ring);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-ring) 50%, transparent);
+	}
+}
+
 @theme {
 	--font-sans:
 		'Work Sans Variable', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
@@ -12,6 +32,9 @@
 		monospace;
 
 	--radius: 0.5rem;
+
+	/* -3% letter spacing wherever `tracking-tight` is used (default app spacing is -2%, set on body). */
+	--tracking-tight: -0.03em;
 
 	--color-background: hsl(0 0% 100%);
 	--color-foreground: hsl(240 10% 3.9%);
@@ -75,6 +98,7 @@ body {
 	background-color: var(--color-background);
 	color: var(--color-foreground);
 	font-family: var(--font-sans);
+	letter-spacing: -0.02em;
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
 }
@@ -83,12 +107,15 @@ body {
 	border-color: var(--color-border);
 }
 
-/* Subtle keyboard-only focus ring as a fallback. Per-component classes can
-   override with their own border-on-focus + softer ring treatment. */
-:focus {
-	outline: none;
-}
-:focus-visible {
-	outline: 1px solid color-mix(in srgb, var(--color-ring) 55%, transparent);
-	outline-offset: 2px;
+/* Keyboard-only focus ring fallback for any focusable element that doesn't
+   define its own. Kept in @layer base so component utilities like `focus-ring`
+   override it through the normal cascade — no !important needed. */
+@layer base {
+	:focus {
+		outline: none;
+	}
+	:focus-visible {
+		outline: 1px solid color-mix(in srgb, var(--color-ring) 55%, transparent);
+		outline-offset: 2px;
+	}
 }

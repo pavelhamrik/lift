@@ -4,6 +4,13 @@
 - **Status:** Proposed
 - **Related:** [2026-06-10-cache-first-fetching.md](./2026-06-10-cache-first-fetching.md)
 
+> **⚠️ Partly superseded by [2026-06-13-unified-symbol-entry.md](./2026-06-13-unified-symbol-entry.md).**
+> Two assumptions below changed: (a) the `policy` field on `BENCHMARKS` was **removed** in favor of
+> an explicit **`asset: 'INDEX' | 'ETF'`** (the real instrument type, no longer inferred from a
+> return-basis proxy) — the fixture provider now reads `asset` directly; and (b) the chart
+> endpoint's inner-join (`intersectionTimes`) was **replaced by union + forward-fill** on a common
+> baseline. Where this plan says `policy` or `intersectionTimes`, read `asset` and union+LOCF.
+
 ## Background
 
 Yahoo Finance rate-limits local/residential/VPN egress IPs: every `*.finance.yahoo.com`
@@ -93,7 +100,7 @@ adjclose(t)  = close(t) * adjFactor(t)
 
 Because the generated grid never exceeds `period2 ≤ asOf`, `yearsBetween(t, asOf) ≥ 0`
 always, so `adjFactor ≤ 1` and `→ 1` at the window's latest bar — the stated property now
-holds by construction. For **indices** (`policy: 'price-only'`), `adjclose === close`.
+holds by construction. For **indices** (`asset: 'INDEX'`), `adjclose === close`.
 
 > **Determinism scope (review #3, #5):** raw `close` is request-independent and identical
 > across overlapping requests. `adjclose`, by contrast, is computed **as-of `period2`**, so a
@@ -107,19 +114,19 @@ holds by construction. For **indices** (`policy: 'price-only'`), `adjclose === c
 A heuristic "`^…` → index, else ETF/equity" mislabels the non-`^` index benchmarks
 `000001.SS` and `000300.SS` (Shanghai / CSI 300) as US equities. Instead, drive metadata from
 an **explicit table covering every `BENCHMARKS` entry** — `instrumentType`, `exchangeName`,
-`currency`, and `exchangeTimezoneName`. Currency/policy come straight from `BENCHMARKS`; asset
-type is declared per symbol (INDEX for every `policy: 'price-only'` benchmark including the
-`.SS` pair, ETF for the `total-return` ones). Only **unknown** symbols (a user-typed ad-hoc
-ticker) fall back to the generic default: US EQUITY, exchange `NMS`, `USD`,
-`America/New_York`.
+`currency`, and `exchangeTimezoneName`. Currency comes straight from `BENCHMARKS`; the instrument
+type is read from the explicit **`asset`** field on each `BENCHMARKS` entry (INDEX for every index
+including the `.SS` pair, ETF for the proxies) — the old `policy` field has been removed. Only
+**unknown** symbols (a user-typed ad-hoc ticker) fall back to the generic default: US EQUITY,
+exchange `NMS`, `USD`, `America/New_York`.
 
 `regularMarketPrice` / `regularMarketTime` come from the last generated bar.
 
 #### Timestamp grid — per-symbol exchange session for intraday (reviews #4, #6-r1)
 
 Generate timestamps from `period1`→`period2` stepping by `interval`. The grid is derived from
-period+interval (plus the symbol's session metadata), so symbols that share a session align in
-`intersectionTimes`.
+period+interval (plus the symbol's session metadata), so symbols that share a session align on
+identical timestamps under union + forward-fill (the inner-join `intersectionTimes` was replaced).
 
 - Daily/longer (`1d`=1 day skipping weekends, `1wk`=7d, `1mo`≈30d): unchanged.
 - **Intraday (`1m`=60s, `5m`=300s): emit bars only during each symbol's own weekday exchange

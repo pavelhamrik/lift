@@ -5,12 +5,17 @@ import {
 	selectionToSearchParams,
 	serializeSelection,
 	loadStoredSelection,
-	SELECTION_STORAGE_KEY
+	parseBasis,
+	serializeBasis,
+	isValidSymbol,
+	normalizeSymbol,
+	MAX_SYMBOLS,
+	SELECTION_STORAGE_KEY,
+	type StoredSelection
 } from '../src/lib/selection.js';
+import { BENCHMARKS } from '../src/lib/benchmarks.js';
 
-const LEGACY_KEY = 'stock-compare:selection';
-
-/** Minimal in-memory Storage for migration tests. */
+/** Minimal in-memory Storage. */
 function makeStorage(initial: Record<string, string> = {}): Storage {
 	const map = new Map<string, string>(Object.entries(initial));
 	return {
@@ -25,85 +30,96 @@ function makeStorage(initial: Record<string, string> = {}): Storage {
 	};
 }
 
-describe('parseSelection (multi)', () => {
-	it('round-trips a valid multi selection', () => {
-		const s = {
-			stocks: ['AAPL', 'MSFT'],
-			compares: ['SPY' as const, 'QQQ' as const],
-			range: '1Y' as const
+describe('parseSelection (unified symbols)', () => {
+	it('round-trips a valid selection', () => {
+		const s: StoredSelection = {
+			symbols: ['AAPL', 'MSFT', 'SPY'],
+			basis: 'total-return',
+			range: '1Y'
 		};
 		expect(parseSelection(serializeSelection(s))).toEqual(s);
 	});
 
+	it('round-trips a price-only basis', () => {
+		const s: StoredSelection = { symbols: ['AAPL'], basis: 'price-only', range: '6M' };
+		expect(parseSelection(serializeSelection(s))).toEqual(s);
+	});
+
 	it('canonicalizes case + whitespace on read', () => {
+		const raw = JSON.stringify({ symbols: ['  aapl ', 'msft'], basis: 'total', range: '1y' });
+		expect(parseSelection(raw)).toEqual({
+			symbols: ['AAPL', 'MSFT'],
+			basis: 'total-return',
+			range: '1Y'
+		});
+	});
+
+	it('dedupes symbols preserving first occurrence', () => {
 		const raw = JSON.stringify({
-			stocks: ['  aapl ', 'msft'],
-			compares: ['spy'],
-			range: '1y'
-		});
-		expect(parseSelection(raw)).toEqual({
-			stocks: ['AAPL', 'MSFT'],
-			compares: ['SPY'],
+			symbols: ['AAPL', 'aapl', ' AAPL ', 'MSFT'],
+			basis: 'total',
 			range: '1Y'
 		});
+		expect(parseSelection(raw)?.symbols).toEqual(['AAPL', 'MSFT']);
 	});
 
-	it('dedupes stocks and compares', () => {
+	it('dedupes BEFORE clamping (duplicates do not consume the cap)', () => {
+		// 17 unique symbols, with the first duplicated up front (18 entries total).
+		const unique = Array.from({ length: 17 }, (_, i) => `SYM${i}`);
+		const input = [unique[0], ...unique]; // SYM0 appears twice
+		const raw = JSON.stringify({ symbols: input, basis: 'total', range: '1Y' });
+		const out = parseSelection(raw);
+		// dedupe-first → 17 unique → clamp to 16. (clamp-first would keep only 15.)
+		expect(out?.symbols).toEqual(unique.slice(0, MAX_SYMBOLS));
+		expect(out?.symbols.length).toBe(MAX_SYMBOLS);
+	});
+
+	it('clamps to MAX_SYMBOLS', () => {
+		const many = Array.from({ length: MAX_SYMBOLS + 5 }, (_, i) => `T${i}`);
+		const raw = JSON.stringify({ symbols: many, basis: 'total', range: '1Y' });
+		expect(parseSelection(raw)?.symbols.length).toBe(MAX_SYMBOLS);
+	});
+
+	it('skips invalid symbols but keeps valid ones', () => {
+		const raw = JSON.stringify({ symbols: ['AAPL', 'AA!', ''], basis: 'total', range: '1Y' });
+		expect(parseSelection(raw)?.symbols).toEqual(['AAPL']);
+	});
+
+	it('defaults basis to total-return when absent or malformed', () => {
+		expect(parseSelection(JSON.stringify({ symbols: ['AAPL'], range: '1Y' }))?.basis).toBe(
+			'total-return'
+		);
+		expect(
+			parseSelection(JSON.stringify({ symbols: ['AAPL'], basis: 'nonsense', range: '1Y' }))?.basis
+		).toBe('total-return');
+	});
+
+	it('accepts digit-bearing, dotted, and hyphenated symbols', () => {
 		const raw = JSON.stringify({
-			stocks: ['AAPL', 'aapl', 'MSFT'],
-			compares: ['SPY', 'spy'],
-			range: '1Y'
+			symbols: ['BRK.B', 'BRK-B', '005930.KS', '000300.SS'],
+			basis: 'price',
+			range: 'YTD'
 		});
 		expect(parseSelection(raw)).toEqual({
-			stocks: ['AAPL', 'MSFT'],
-			compares: ['SPY'],
-			range: '1Y'
+			symbols: ['BRK.B', 'BRK-B', '005930.KS', '000300.SS'],
+			basis: 'price-only',
+			range: 'YTD'
 		});
 	});
 
-	it('skips invalid stocks but keeps valid ones', () => {
-		const raw = JSON.stringify({
-			stocks: ['AAPL', 'AA!', ''],
-			compares: ['SPY'],
-			range: '1Y'
-		});
-		expect(parseSelection(raw)).toEqual({
-			stocks: ['AAPL'],
-			compares: ['SPY'],
-			range: '1Y'
-		});
+	it('rejects when no valid symbols remain', () => {
+		expect(
+			parseSelection(JSON.stringify({ symbols: ['AA!'], basis: 'total', range: '1Y' }))
+		).toBeNull();
+		expect(parseSelection(JSON.stringify({ symbols: [], basis: 'total', range: '1Y' }))).toBeNull();
 	});
 
-	it('skips compares outside the allowlist', () => {
-		const raw = JSON.stringify({
-			stocks: ['AAPL'],
-			compares: ['SPY', 'NOPE'],
-			range: '1Y'
-		});
-		expect(parseSelection(raw)).toEqual({
-			stocks: ['AAPL'],
-			compares: ['SPY'],
-			range: '1Y'
-		});
-	});
-
-	it('migrates legacy single-pair shape', () => {
-		const raw = JSON.stringify({ symbol: 'AAPL', benchmark: 'SPY', range: '1Y' });
-		expect(parseSelection(raw)).toEqual({
-			stocks: ['AAPL'],
-			compares: ['SPY'],
-			range: '1Y'
-		});
-	});
-
-	it('rejects when no valid stocks remain', () => {
-		const raw = JSON.stringify({ stocks: ['AA!'], compares: ['SPY'], range: '1Y' });
-		expect(parseSelection(raw)).toBeNull();
+	it('rejects a missing symbols array', () => {
+		expect(parseSelection(JSON.stringify({ basis: 'total', range: '1Y' }))).toBeNull();
 	});
 
 	it('rejects unknown range', () => {
-		const raw = JSON.stringify({ stocks: ['AAPL'], compares: ['SPY'], range: '3D' });
-		expect(parseSelection(raw)).toBeNull();
+		expect(parseSelection(JSON.stringify({ symbols: ['AAPL'], range: '3D' }))).toBeNull();
 	});
 
 	it('rejects null / empty / malformed', () => {
@@ -111,109 +127,80 @@ describe('parseSelection (multi)', () => {
 		expect(parseSelection('')).toBeNull();
 		expect(parseSelection('{not json')).toBeNull();
 	});
+});
 
-	it('accepts an exotic benchmark and dotted-class symbol', () => {
-		const raw = JSON.stringify({
-			stocks: ['BRK.B'],
-			compares: ['000300.SS'],
-			range: 'YTD'
-		});
-		expect(parseSelection(raw)).toEqual({
-			stocks: ['BRK.B'],
-			compares: ['000300.SS'],
-			range: 'YTD'
-		});
+describe('validator round-trip — every curated symbol survives (Finding 1)', () => {
+	it('every BENCHMARKS key passes isValidSymbol and survives parsing', () => {
+		for (const key of Object.keys(BENCHMARKS)) {
+			expect(isValidSymbol(key)).toBe(true);
+			expect(normalizeSymbol(key)).toBe(key);
+			// JSON form
+			expect(
+				parseSelection(JSON.stringify({ symbols: [key], basis: 'total', range: '1Y' }))?.symbols
+			).toEqual([key]);
+			// URL form
+			expect(
+				parseSelectionParams(new URLSearchParams(`symbols=${encodeURIComponent(key)}&range=1Y`))
+					?.symbols
+			).toEqual([key]);
+		}
+	});
+
+	it('rejects clearly invalid symbols', () => {
+		expect(isValidSymbol('AA!')).toBe(false);
+		expect(isValidSymbol('TOOLONGSYMBOL12345')).toBe(false);
+		expect(isValidSymbol('')).toBe(false);
 	});
 });
 
-describe('loadStoredSelection (key migration)', () => {
-	const current = { stocks: ['NVDA'], compares: ['QQQ' as const], range: '6M' as const };
-	const legacy = { stocks: ['AAPL'], compares: ['SPY' as const], range: '1Y' as const };
-
-	it('returns the current-key selection and ignores the legacy key', () => {
-		const storage = makeStorage({
-			[SELECTION_STORAGE_KEY]: serializeSelection(current),
-			[LEGACY_KEY]: serializeSelection(legacy)
-		});
-		expect(loadStoredSelection(storage)).toEqual(current);
-		// Current wins; the legacy key is left untouched (not consumed).
-		expect(parseSelection(storage.getItem(LEGACY_KEY))).toEqual(legacy);
+describe('basis codec (Finding 8)', () => {
+	it('round-trips total and price tokens', () => {
+		expect(parseBasis(serializeBasis('total-return'))).toBe('total-return');
+		expect(parseBasis(serializeBasis('price-only'))).toBe('price-only');
+		expect(serializeBasis('total-return')).toBe('total');
+		expect(serializeBasis('price-only')).toBe('price');
 	});
 
-	it('migrates the legacy key forward when no current key exists', () => {
-		const storage = makeStorage({ [LEGACY_KEY]: serializeSelection(legacy) });
-		expect(loadStoredSelection(storage)).toEqual(legacy);
-		// Copied to the current key...
-		expect(parseSelection(storage.getItem(SELECTION_STORAGE_KEY))).toEqual(legacy);
-		// ...and the legacy key removed so the migration runs only once.
-		expect(storage.getItem(LEGACY_KEY)).toBeNull();
+	it('absent or malformed → default total-return', () => {
+		expect(parseBasis(null)).toBe('total-return');
+		expect(parseBasis(undefined)).toBe('total-return');
+		expect(parseBasis('garbage')).toBe('total-return');
+	});
+});
+
+describe('loadStoredSelection', () => {
+	it('returns the parsed current-key selection', () => {
+		const sel: StoredSelection = { symbols: ['NVDA'], basis: 'price-only', range: '6M' };
+		const storage = makeStorage({ [SELECTION_STORAGE_KEY]: serializeSelection(sel) });
+		expect(loadStoredSelection(storage)).toEqual(sel);
 	});
 
-	it('returns null and writes nothing when neither key is present', () => {
-		const storage = makeStorage();
-		expect(loadStoredSelection(storage)).toBeNull();
-		expect(storage.getItem(SELECTION_STORAGE_KEY)).toBeNull();
-		expect(storage.getItem(LEGACY_KEY)).toBeNull();
-	});
-
-	it('does not migrate an unparseable legacy value', () => {
-		const storage = makeStorage({ [LEGACY_KEY]: '{not json' });
-		expect(loadStoredSelection(storage)).toBeNull();
-		expect(storage.getItem(SELECTION_STORAGE_KEY)).toBeNull();
-		// A malformed legacy value is left as-is rather than silently dropped.
-		expect(storage.getItem(LEGACY_KEY)).toBe('{not json');
-	});
-
-	it('still returns the legacy selection when the migration write throws', () => {
-		const storage = makeStorage({ [LEGACY_KEY]: serializeSelection(legacy) });
-		let removed = false;
-		storage.setItem = () => {
-			throw new DOMException('QuotaExceededError');
-		};
-		const origRemove = storage.removeItem.bind(storage);
-		storage.removeItem = (k: string) => {
-			removed = true;
-			origRemove(k);
-		};
-		// The valid selection survives a write failure...
-		expect(loadStoredSelection(storage)).toEqual(legacy);
-		// ...and the legacy key is NOT removed, so the migration can retry later.
-		expect(removed).toBe(false);
-		expect(parseSelection(storage.getItem(LEGACY_KEY))).toEqual(legacy);
+	it('returns null when absent or unparseable', () => {
+		expect(loadStoredSelection(makeStorage())).toBeNull();
+		expect(loadStoredSelection(makeStorage({ [SELECTION_STORAGE_KEY]: '{not json' }))).toBeNull();
 	});
 });
 
 describe('selection URL params (share links)', () => {
 	it('round-trips a selection through search params', () => {
-		const s = {
-			stocks: ['AAPL', 'MSFT'],
-			compares: ['SPY' as const, 'QQQ' as const],
-			range: '1Y' as const
-		};
-		const params = selectionToSearchParams(s);
-		expect(parseSelectionParams(params)).toEqual(s);
+		const s: StoredSelection = { symbols: ['AAPL', 'MSFT'], basis: 'total-return', range: '1Y' };
+		expect(parseSelectionParams(selectionToSearchParams(s))).toEqual(s);
 	});
 
 	it('produces readable query params', () => {
 		const params = selectionToSearchParams({
-			stocks: ['AAPL', 'MSFT'],
-			compares: ['SPY'],
+			symbols: ['AAPL', 'MSFT'],
+			basis: 'total-return',
 			range: '1Y'
 		});
-		expect(params.toString()).toBe('stocks=AAPL%2CMSFT&compares=SPY&range=1Y');
-	});
-
-	it('omits the compares param when there are none', () => {
-		const params = selectionToSearchParams({ stocks: ['AAPL'], compares: [], range: '6M' });
-		expect(params.has('compares')).toBe(false);
-		expect(parseSelectionParams(params)).toEqual({ stocks: ['AAPL'], compares: [], range: '6M' });
+		expect(params.toString()).toBe('symbols=AAPL%2CMSFT&basis=total&range=1Y');
 	});
 
 	it('canonicalizes case + whitespace and dedupes from params', () => {
-		const params = new URLSearchParams('stocks=  aapl , msft , aapl &compares=spy,spy&range=1y');
+		const params = new URLSearchParams('symbols=  aapl , msft , aapl &basis=price&range=1y');
 		expect(parseSelectionParams(params)).toEqual({
-			stocks: ['AAPL', 'MSFT'],
-			compares: ['SPY'],
+			symbols: ['AAPL', 'MSFT'],
+			basis: 'price-only',
 			range: '1Y'
 		});
 	});
@@ -224,12 +211,12 @@ describe('selection URL params (share links)', () => {
 	});
 
 	it('returns null for an unknown range', () => {
-		expect(parseSelectionParams(new URLSearchParams('stocks=AAPL&range=3D'))).toBeNull();
+		expect(parseSelectionParams(new URLSearchParams('symbols=AAPL&range=3D'))).toBeNull();
 	});
 
-	it('returns null when no valid stocks survive', () => {
+	it('returns null when no valid symbols survive', () => {
 		expect(
-			parseSelectionParams(new URLSearchParams('stocks=AA!&compares=SPY&range=1Y'))
+			parseSelectionParams(new URLSearchParams('symbols=AA!&basis=total&range=1Y'))
 		).toBeNull();
 	});
 });

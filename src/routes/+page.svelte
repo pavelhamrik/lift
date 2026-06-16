@@ -12,19 +12,37 @@
 	} from '$lib/chart/setup.js';
 	import { pctChangeSeries } from '$lib/chart/normalize.js';
 	import { createThemeStore, type ThemeMode } from '$lib/theme/mode.svelte.js';
-	import { isBenchmarkSymbol, type BenchmarkSymbol } from '$lib/benchmarks.js';
-	import CompareAddMenu from '$lib/components/ui/CompareAddMenu.svelte';
+	import {
+		BENCHMARKS,
+		isBenchmarkSymbol,
+		isIntradayRange,
+		DEFAULT_SYMBOLS,
+		DEFAULT_BASIS
+	} from '$lib/benchmarks.js';
+	import SymbolSearch from '$lib/components/ui/SymbolSearch.svelte';
+	import SeriesList from '$lib/components/ui/SeriesList.svelte';
 	import AccountMenu from '$lib/components/ui/AccountMenu.svelte';
 	import Logo from '$lib/components/ui/Logo.svelte';
 	import OverflowMenu from '$lib/components/ui/OverflowMenu.svelte';
-	import { RANGES, type Range } from '$lib/providers/types.js';
-	import { captureEvent } from '$lib/analytics/posthog.js';
+	import {
+		RANGES,
+		type Range,
+		type ReturnBasis,
+		type SeriesKind,
+		type Asset
+	} from '$lib/providers/types.js';
 	import { cn } from '$lib/utils.js';
+	import { createNameResolver } from '$lib/nameResolver.js';
+	import { captureEvent } from '$lib/analytics/posthog.js';
+	import type { SymbolSearchResult } from '$lib/symbols.js';
 	import {
 		parseSelectionParams,
 		selectionToSearchParams,
 		serializeSelection,
+		serializeBasis,
 		loadStoredSelection,
+		isValidSymbol,
+		MAX_SYMBOLS,
 		SELECTION_STORAGE_KEY,
 		type StoredSelection
 	} from '$lib/selection.js';
@@ -32,13 +50,13 @@
 	let { data: pageData } = $props();
 
 	type ClosePoint = { time: number; close: number };
-	type SeriesKind = 'stock' | 'comparison';
 	type MultiSeries = {
 		symbol: string;
 		kind: SeriesKind;
+		asset: 'EQUITY' | 'ETF' | 'INDEX';
 		currency: string;
 		aligned: ClosePoint[];
-		summary: { lastPrice: number; lastPriceTime: number; pctChange: number };
+		summary: { lastPrice: number; lastPriceTime: number; pctChange?: number };
 	};
 	type MultiResponse = {
 		series: MultiSeries[];
@@ -49,31 +67,24 @@
 			timezone: string;
 			windowStart: number;
 			windowEnd: number;
-			returnBasis: 'price-only' | 'total-return' | 'mixed';
+			baseTime: number;
+			returnBasis: ReturnBasis;
 		};
 	};
 
-	const DEFAULT_STOCKS = ['AAPL'];
-	const DEFAULT_COMPARES: BenchmarkSymbol[] = ['SPY'];
-	const SYMBOL_RE = /^[A-Z\^.\-]{1,8}$/;
-	const MAX_STOCKS = 8;
-	const MAX_COMPARES = 8;
+	type SymbolMeta = { kind: SeriesKind; asset?: Asset; name?: string };
 
-	let stocks = $state<string[]>([...DEFAULT_STOCKS]);
-	let compares = $state<BenchmarkSymbol[]>([...DEFAULT_COMPARES]);
+	let symbols = $state<string[]>([...DEFAULT_SYMBOLS]);
+	let basis = $state<ReturnBasis>(DEFAULT_BASIS);
 	let range = $state<Range>('1Y');
-	let stockInput = $state('');
-	let stockInputError = $state<string | null>(null);
+	// Partial per-symbol metadata: kind (provisional pre-load, authoritative after),
+	// fine asset class, and lazily-resolved display name.
+	let symbolMeta = $state<Record<string, SymbolMeta>>({});
+
 	let loading = $state(false);
 	// `reason` is a stable, enum-like code (not the human-readable title/detail) so
 	// it can ride the load_error analytics event without leaking raw messages.
-	type LoadErrorReason =
-		| 'no_overlap'
-		| 'rate_limited'
-		| 'bad_request'
-		| 'provider_down'
-		| 'network'
-		| 'unknown';
+	type LoadErrorReason = 'rate_limited' | 'bad_request' | 'provider_down' | 'network' | 'unknown';
 	type LoadError = { title: string; detail: string; retryable: boolean; reason: LoadErrorReason };
 	let loadError = $state<LoadError | null>(null);
 	// Bumped per request so only the most recent load commits its result.
@@ -100,12 +111,6 @@
 	let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastLoadAt = 0;
 
-	type LookupStatus = 'idle' | 'loading' | 'found' | 'notfound' | 'error';
-	let lookupStatus = $state<LookupStatus>('idle');
-	let lookupName = $state<string | null>(null);
-	let lookupSeq = 0;
-	let lookupTimer: ReturnType<typeof setTimeout> | null = null;
-
 	const theme = createThemeStore();
 	const themeOptions: ThemeMode[] = ['system', 'light', 'dark'];
 
@@ -114,20 +119,64 @@
 	let tooltip = $state<TooltipPayload>(null);
 	let tooltipUnsub: (() => void) | null = null;
 
+	// Bounded, memoized, in-flight-deduped name resolution. The chart never needs
+	// names, so this only fills in row labels on demand without a cold-link burst.
+	const nameResolver = createNameResolver(async (sym) => {
+		try {
+			const r = await fetch(`/api/lookup?symbol=${encodeURIComponent(sym)}`);
+			if (!r.ok) return null;
+			const body = (await r.json()) as { name?: string };
+			return body.name ?? null;
+		} catch {
+			return null;
+		}
+	});
+
+	/** Provisional kind before the server confirms: curated indices → index, else equity. */
+	function provisionalKind(symbol: string): SeriesKind {
+		return isBenchmarkSymbol(symbol) && BENCHMARKS[symbol].asset === 'INDEX' ? 'index' : 'equity';
+	}
+
+	function kindFor(symbol: string): SeriesKind {
+		return symbolMeta[symbol]?.kind ?? provisionalKind(symbol);
+	}
+
+	function nameFor(symbol: string): string | undefined {
+		return symbolMeta[symbol]?.name;
+	}
+
+	function summaryFor(symbol: string): number | undefined {
+		return data?.series.find((s) => s.symbol === symbol)?.summary.pctChange;
+	}
+
+	// Colors are assigned by position within kind over the ordered symbol list, so
+	// the gray palette is reached only by true indices.
 	const seriesColors = $derived.by(() => {
 		const root = browser ? document.documentElement : undefined;
-		const map = new Map<string, string>();
-		stocks.forEach((s, i) => {
-			map.set(s, root ? colorForSeries('stock', i, root) : '#0ea5e9');
-		});
-		compares.forEach((c, i) => {
-			map.set(c, root ? colorForSeries('comparison', i, root) : '#6b7280');
-		});
+		const map: Record<string, string> = {};
+		let equityIdx = 0;
+		let indexIdx = 0;
+		for (const sym of symbols) {
+			const k = kindFor(sym);
+			const i = k === 'index' ? indexIdx++ : equityIdx++;
+			map[sym] = root ? colorForSeries(k, i, root) : k === 'index' ? '#6b7280' : '#0ea5e9';
+		}
 		return map;
 	});
 
 	function colorFor(symbol: string): string {
-		return seriesColors.get(symbol) ?? '#888888';
+		return seriesColors[symbol] ?? '#888888';
+	}
+
+	function requestName(symbol: string) {
+		if (symbolMeta[symbol]?.name) return;
+		void nameResolver.resolve(symbol).then((name) => {
+			if (!name) return;
+			symbolMeta = {
+				...symbolMeta,
+				[symbol]: { ...(symbolMeta[symbol] ?? { kind: provisionalKind(symbol) }), name }
+			};
+		});
 	}
 
 	function formatTooltipTime(t: number, tz: string, interval: string): string {
@@ -181,18 +230,6 @@
 		return `left: ${Math.max(8, left)}px; top: ${Math.max(8, top)}px;`;
 	});
 
-	function formatPrice(v: number, currency: string): string {
-		try {
-			return new Intl.NumberFormat('en-US', {
-				style: 'currency',
-				currency,
-				maximumFractionDigits: 2
-			}).format(v);
-		} catch {
-			return v.toFixed(2);
-		}
-	}
-
 	function formatPct(v: number, decimals = 2): string {
 		const sign = v > 0 ? '+' : '';
 		return `${sign}${v.toFixed(decimals)}%`;
@@ -202,25 +239,14 @@
 		return i === '1m' || i === '5m' || i === '15m' || i === '30m' || i === '1h';
 	}
 
-	function formatLastTime(t: number, tz: string, interval: string): string {
-		const d = new Date(t * 1000);
-		const opts: Intl.DateTimeFormatOptions = isIntraday(interval)
-			? { hour: '2-digit', minute: '2-digit', timeZone: tz, hour12: false }
-			: { year: 'numeric', month: 'short', day: '2-digit', timeZone: tz };
-		try {
-			return new Intl.DateTimeFormat('en-US', opts).format(d);
-		} catch {
-			return d.toISOString();
-		}
+	function currentSelection(): StoredSelection {
+		return { symbols: [...symbols], basis, range };
 	}
 
 	function persistSelection() {
 		if (!browser) return;
 		try {
-			localStorage.setItem(
-				SELECTION_STORAGE_KEY,
-				serializeSelection({ stocks: [...stocks], compares: [...compares], range })
-			);
+			localStorage.setItem(SELECTION_STORAGE_KEY, serializeSelection(currentSelection()));
 		} catch {
 			/* ignore quota / disabled storage */
 		}
@@ -228,7 +254,7 @@
 
 	function syncUrl() {
 		if (!browser) return;
-		const params = selectionToSearchParams({ stocks: [...stocks], compares: [...compares], range });
+		const params = selectionToSearchParams(currentSelection());
 		try {
 			// replaceState (not pushState) so the address bar stays shareable without
 			// polluting history; pass the existing state to keep SvelteKit's router happy.
@@ -243,15 +269,15 @@
 	}
 
 	async function share() {
-		const params = selectionToSearchParams({ stocks: [...stocks], compares: [...compares], range });
+		const params = selectionToSearchParams(currentSelection());
 		const url = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
 		try {
 			await navigator.clipboard.writeText(url);
 		} catch {
 			/* clipboard may be blocked; the link is still live in the address bar */
 		}
-		captureEvent('selection_shared', { stocks: stocks.length, compares: compares.length });
 		shareCopied = true;
+		captureEvent('selection_shared', { symbols: symbols.length });
 		if (shareTimer) clearTimeout(shareTimer);
 		shareTimer = setTimeout(() => {
 			shareCopied = false;
@@ -269,15 +295,6 @@
 			/* not JSON — fall back to the raw text */
 		}
 
-		if (/no overlapping bars/i.test(msg)) {
-			return {
-				title: 'No overlapping history',
-				detail:
-					'These symbols don’t share enough common trading days over this range. Try a longer range, or remove one of them.',
-				retryable: false,
-				reason: 'no_overlap'
-			};
-		}
 		if (status === 429) {
 			return {
 				title: 'Too many requests',
@@ -299,7 +316,7 @@
 			return {
 				title: 'Couldn’t reach the data provider',
 				detail:
-					'The market-data source didn’t respond. This is usually temporary, try again in a moment.',
+					'The market-data source didn’t respond, or none of these symbols had data over this range. This is usually temporary, try again in a moment.',
 				retryable: true,
 				reason: 'provider_down'
 			};
@@ -315,12 +332,12 @@
 	async function load(opts: { background?: boolean } = {}) {
 		const { background = false } = opts;
 		// Cancel any still-in-flight request before starting a new one — including
-		// before bailing on an empty selection, so clearing all stocks aborts a
+		// before bailing on an empty selection, so clearing all symbols aborts a
 		// pending load rather than letting it commit stale data afterwards.
 		inflightAbort?.abort();
 		inflightAbort = new AbortController();
 		const signal = inflightAbort.signal;
-		if (stocks.length === 0) {
+		if (symbols.length === 0) {
 			data = null;
 			loadError = null;
 			refreshFailed = false;
@@ -340,8 +357,8 @@
 		}
 		try {
 			const u = new URL('/api/history-multi', window.location.origin);
-			u.searchParams.set('stocks', stocks.join(','));
-			u.searchParams.set('compares', compares.join(','));
+			u.searchParams.set('symbols', symbols.join(','));
+			u.searchParams.set('basis', serializeBasis(basis));
 			u.searchParams.set('range', range);
 			const r = await fetch(u, { signal });
 			if (seq !== loadSeq) return; // superseded by a newer request
@@ -356,15 +373,14 @@
 				const body = await r.text();
 				if (seq !== loadSeq) return;
 				loadError = describeError(r.status, body);
-				data = null;
-				// Anonymous product signal: which selections fail to chart (e.g.
-				// no_overlap) vs. transient infra errors. Only the enum reason rides.
 				captureEvent('load_error', { reason: loadError.reason });
+				data = null;
 				return;
 			}
 			const next = (await r.json()) as MultiResponse;
 			if (seq !== loadSeq) return; // superseded while the body streamed in
 			data = next;
+			reconcileMeta(next);
 			refreshFailed = false;
 			renderChart();
 			persistSelection();
@@ -383,8 +399,8 @@
 					retryable: true,
 					reason: 'network'
 				};
-				data = null;
 				captureEvent('load_error', { reason: loadError.reason });
+				data = null;
 			}
 		} finally {
 			inFlight--;
@@ -399,6 +415,15 @@
 				scheduleAutoRefresh();
 			}
 		}
+	}
+
+	// Reconcile provisional kind/asset with the server's authoritative values.
+	function reconcileMeta(res: MultiResponse) {
+		const next = { ...symbolMeta };
+		for (const s of res.series) {
+			next[s.symbol] = { ...(next[s.symbol] ?? {}), kind: s.kind, asset: s.asset };
+		}
+		symbolMeta = next;
 	}
 
 	function clearRefreshTimer() {
@@ -442,142 +467,74 @@
 
 	function renderChart() {
 		if (!handles || !data) return;
+		const baseTime = data.meta.baseTime;
 		const specs: SeriesSpec[] = data.series.map((s) => ({
 			symbol: s.symbol,
 			kind: s.kind,
 			color: colorFor(s.symbol),
-			data: pctChangeSeries(s.aligned)
+			data: pctChangeSeries(s.aligned, baseTime)
 		}));
 		handles.setSeries(specs);
 		handles.setVolume(data.primaryVolume.data);
 	}
 
 	function getAnchorSymbol(): string | undefined {
-		return stocks[0];
+		return data?.primaryVolume.symbol;
 	}
 
-	function addStock() {
-		stockInputError = null;
-		const v = stockInput.trim().toUpperCase();
-		if (!v) return;
-		if (!SYMBOL_RE.test(v)) {
-			stockInputError = 'Invalid ticker';
-			return;
-		}
-		if (stocks.includes(v)) {
-			stockInputError = 'Already added';
-			return;
-		}
-		if (stocks.length >= MAX_STOCKS) {
-			stockInputError = `Max ${MAX_STOCKS}`;
-			return;
-		}
-		stocks = [...stocks, v];
-		stockInput = '';
-		captureEvent('symbol_added', { symbol: v, kind: 'stock', source: 'input' });
+	function addSymbol(result: SymbolSearchResult) {
+		const sym = result.symbol.trim().toUpperCase();
+		if (!isValidSymbol(sym)) return;
+		if (symbols.includes(sym)) return; // already present — no-op (R1.3)
+		if (symbols.length >= MAX_SYMBOLS) return;
+		symbols = [...symbols, sym];
+		symbolMeta = {
+			...symbolMeta,
+			[sym]: {
+				kind: result.kind,
+				asset: result.asset,
+				name: result.name || symbolMeta[sym]?.name
+			}
+		};
 		void load();
 	}
 
-	function removeStock(s: string) {
-		if (stocks.length <= 1) return;
-		stocks = stocks.filter((x) => x !== s);
-		captureEvent('symbol_removed', { symbol: s, kind: 'stock' });
+	function removeSymbol(sym: string) {
+		if (symbols.length <= 1) return;
+		symbols = symbols.filter((x) => x !== sym);
+		captureEvent('symbol_removed', { symbol: sym });
 		void load();
 	}
 
-	function addCompare(sym: BenchmarkSymbol) {
-		if (compares.includes(sym)) return;
-		if (compares.length >= MAX_COMPARES) return;
-		compares = [...compares, sym];
-		captureEvent('symbol_added', { symbol: sym, kind: 'comparison', source: 'benchmark_menu' });
-		void load();
-	}
-
-	function removeCompare(sym: BenchmarkSymbol) {
-		compares = compares.filter((x) => x !== sym);
-		captureEvent('symbol_removed', { symbol: sym, kind: 'comparison' });
+	function setBasis(next: ReturnBasis) {
+		if (next === basis) return;
+		basis = next;
 		void load();
 	}
 
 	function resetSelection() {
-		stocks = [...DEFAULT_STOCKS];
-		compares = [...DEFAULT_COMPARES];
-		stockInput = '';
-		stockInputError = null;
+		symbols = [...DEFAULT_SYMBOLS];
+		basis = DEFAULT_BASIS;
 		captureEvent('selection_reset');
 		void load();
 	}
 
 	function applySelection(sel: StoredSelection) {
-		stocks = [...sel.stocks];
-		compares = [...sel.compares];
+		symbols = [...sel.symbols];
+		basis = sel.basis;
 		range = sel.range;
-		stockInput = '';
-		stockInputError = null;
 		void load();
 	}
-
-	function onStockKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter') {
-			e.preventDefault();
-			addStock();
-		}
-	}
-
-	async function runLookup(sym: string, seq: number) {
-		try {
-			const r = await fetch(`/api/lookup?symbol=${encodeURIComponent(sym)}`);
-			if (seq !== lookupSeq) return;
-			if (r.status === 404) {
-				lookupName = null;
-				lookupStatus = 'notfound';
-				// The symbol a visitor typed that we couldn't resolve — the signal for
-				// which tickers people expect Lift to support.
-				captureEvent('search_no_results', { query: sym });
-				return;
-			}
-			if (!r.ok) {
-				lookupStatus = 'error';
-				return;
-			}
-			const body = (await r.json()) as { symbol: string; name: string };
-			if (seq !== lookupSeq) return;
-			lookupName = body.name;
-			lookupStatus = 'found';
-		} catch {
-			if (seq !== lookupSeq) return;
-			lookupStatus = 'error';
-		}
-	}
-
-	$effect(() => {
-		const trimmed = stockInput.trim().toUpperCase();
-		lookupSeq++;
-		if (lookupTimer) {
-			clearTimeout(lookupTimer);
-			lookupTimer = null;
-		}
-		if (!trimmed || !SYMBOL_RE.test(trimmed) || stocks.includes(trimmed)) {
-			lookupStatus = 'idle';
-			lookupName = null;
-			return;
-		}
-		lookupStatus = 'loading';
-		const seq = lookupSeq;
-		lookupTimer = setTimeout(() => {
-			void runLookup(trimmed, seq);
-		}, 300);
-	});
 
 	onMount(() => {
 		if (!chartEl) return;
 		try {
-			// A shared link (?stocks=…&compares=…&range=…) wins over saved local state.
+			// A shared link (?symbols=…&basis=…&range=…) wins over saved local state.
 			const fromUrl = parseSelectionParams(new URLSearchParams(window.location.search));
 			const stored = fromUrl ?? loadStoredSelection(localStorage);
 			if (stored) {
-				stocks = stored.stocks;
-				compares = stored.compares;
+				symbols = stored.symbols;
+				basis = stored.basis;
 				range = stored.range;
 			}
 		} catch {
@@ -592,8 +549,10 @@
 	});
 
 	$effect(() => {
-		const _ = theme.resolved;
-		if (handles && browser) {
+		// Read theme.resolved so this effect re-runs when the mode flips (it's always
+		// truthy, so the guard's behavior is unchanged).
+		const resolved = theme.resolved;
+		if (resolved && handles && browser) {
 			handles.applyTheme(readTheme());
 			// Re-apply colors since some palette slots come from CSS vars.
 			if (data) renderChart();
@@ -609,8 +568,6 @@
 		if (browser) document.removeEventListener('visibilitychange', handleVisibilityChange);
 		if (shareTimer) clearTimeout(shareTimer);
 	});
-
-	const primarySeries = $derived.by(() => data?.series.find((s) => s.kind === 'stock'));
 </script>
 
 <svelte:head>
@@ -619,133 +576,28 @@
 </svelte:head>
 
 <div class="flex min-h-screen flex-col">
-	<header class="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
-		<a href="/" aria-label="Lift home" class="mr-1 inline-flex shrink-0 items-center">
+	<header class="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
+		<!-- Deliberately not a link: this is the app's only page, and navigating to "/"
+		     would drop the symbols/range/basis carried in the URL query — the exact
+		     state people copy to share. The docs pages keep a clickable logo home. -->
+		<div class="order-1 mr-1 inline-flex shrink-0 items-center">
 			<Logo class="h-5 w-auto text-(--color-foreground)" />
-		</a>
+		</div>
 
-		<div class="flex flex-wrap items-center gap-1.5">
-			{#each stocks as s (s)}
-				<span
-					class="inline-flex h-7 items-center gap-1.5 rounded-full border pr-1 pl-2.5 text-xs font-medium tabular-nums"
-					style="border-color: var(--color-border)"
-				>
-					<span
-						class="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-						style="background: {colorFor(s)}"
-					></span>
-					<span class="text-(--color-foreground)">{s}</span>
-					<button
-						type="button"
-						aria-label={`Remove ${s}`}
-						title={stocks.length <= 1 ? 'At least one stock required' : `Remove ${s}`}
-						disabled={stocks.length <= 1}
-						onclick={() => removeStock(s)}
-						class={cn(
-							'inline-flex h-5 w-5 items-center justify-center rounded-full transition-colors',
-							'text-(--color-muted-foreground) hover:bg-(--color-accent) hover:text-(--color-foreground)',
-							'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent'
-						)}
-					>
-						<svg
-							viewBox="0 0 20 20"
-							class="h-3 w-3"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							aria-hidden="true"
-						>
-							<path d="M5 5l10 10M15 5l-10 10" />
-						</svg>
-					</button>
-				</span>
-			{/each}
-			<div class="relative flex items-center">
-				<input
-					type="text"
-					bind:value={stockInput}
-					onkeydown={onStockKeydown}
-					placeholder={stocks.length >= MAX_STOCKS ? `Max ${MAX_STOCKS}` : '+ ticker'}
-					autocomplete="off"
-					autocapitalize="characters"
-					spellcheck="false"
-					disabled={stocks.length >= MAX_STOCKS}
-					aria-label="Add stock"
-					title={stockInputError ?? 'Add stock'}
-					class={cn(
-						'h-7 w-28 rounded-full border px-2.5 text-xs font-medium uppercase transition-colors',
-						'bg-(--color-card) text-(--color-card-foreground) placeholder:text-(--color-muted-foreground)',
-						'border-dashed border-(--color-input) hover:border-(--color-muted-foreground)/60',
-						'focus:border-(--color-ring) focus:outline-none',
-						'disabled:cursor-not-allowed disabled:opacity-50',
-						stockInputError && 'border-(--color-destructive)'
-					)}
+		<div class="order-3 w-full min-w-0 sm:order-2 sm:flex sm:w-auto sm:flex-1 sm:justify-center">
+			<SymbolSearch selected={symbols} disabled={symbols.length >= MAX_SYMBOLS} onAdd={addSymbol} />
+		</div>
+
+		<div class="order-2 ml-auto inline-flex shrink-0 items-center gap-2 sm:order-3">
+			{#if pageData.supabase}
+				<AccountMenu
+					supabase={pageData.supabase}
+					user={pageData.user}
+					selection={currentSelection()}
+					onLoad={applySelection}
 				/>
-				{#if lookupStatus === 'loading'}
-					<div
-						class="absolute top-full left-2.5 mt-1 max-w-[16rem] truncate text-[11px] text-(--color-muted-foreground)"
-					>
-						Looking up…
-					</div>
-				{:else if lookupStatus === 'found' && lookupName}
-					<div
-						class="absolute top-full left-2.5 mt-1 max-w-[16rem] truncate text-[11px] text-(--color-muted-foreground)"
-						title={lookupName}
-					>
-						{lookupName}
-					</div>
-				{:else if lookupStatus === 'notfound'}
-					<div class="absolute top-full left-2.5 mt-1 text-[11px] text-(--color-destructive)">
-						Not found
-					</div>
-				{/if}
-			</div>
-		</div>
+			{/if}
 
-		<div class="flex flex-wrap items-center gap-1.5">
-			{#each compares as c (c)}
-				<span
-					class="inline-flex h-7 items-center gap-1.5 rounded-full border pr-1 pl-2.5 text-xs font-medium tabular-nums"
-					style="border-color: var(--color-border)"
-				>
-					<span
-						class="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-						style="background: {colorFor(c)}"
-					></span>
-					<span class="text-(--color-foreground)">{c}</span>
-					<button
-						type="button"
-						aria-label={`Remove ${c}`}
-						title={`Remove ${c}`}
-						onclick={() => removeCompare(c)}
-						class={cn(
-							'inline-flex h-5 w-5 items-center justify-center rounded-full transition-colors',
-							'text-(--color-muted-foreground) hover:bg-(--color-accent) hover:text-(--color-foreground)'
-						)}
-					>
-						<svg
-							viewBox="0 0 20 20"
-							class="h-3 w-3"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							aria-hidden="true"
-						>
-							<path d="M5 5l10 10M15 5l-10 10" />
-						</svg>
-					</button>
-				</span>
-			{/each}
-			<CompareAddMenu
-				excluded={compares}
-				disabled={compares.length >= MAX_COMPARES}
-				onAdd={addCompare}
-			/>
-		</div>
-
-		<div class="ml-auto inline-flex items-center gap-2">
 			<button
 				type="button"
 				title={shareCopied ? 'Link copied' : 'Copy shareable link'}
@@ -754,8 +606,8 @@
 				class={cn(
 					'inline-flex h-9 items-center justify-center gap-1.5 rounded-full border px-4 text-sm font-medium',
 					'bg-(--color-card) text-(--color-card-foreground) hover:bg-(--color-muted)',
-					'border-(--color-input) transition-colors',
-					'focus:border-(--color-ring) focus:outline-none'
+					'border-(--color-input) transition-[color,box-shadow]',
+					'focus-ring'
 				)}
 			>
 				{#if shareCopied}
@@ -791,56 +643,65 @@
 				{/if}
 			</button>
 
-			{#if pageData.supabase}
-				<AccountMenu
-					supabase={pageData.supabase}
-					user={pageData.user}
-					selection={{ stocks: [...stocks], compares: [...compares], range }}
-					onLoad={applySelection}
-				/>
-			{/if}
+			<a
+				href="https://github.com/pavelhamrik/lift"
+				target="_blank"
+				rel="noopener"
+				title="View source on GitHub"
+				aria-label="View source on GitHub"
+				class={cn(
+					'inline-flex h-9 w-9 items-center justify-center rounded-full border text-sm',
+					'bg-(--color-card) text-(--color-card-foreground) hover:bg-(--color-muted)',
+					'border-(--color-input) transition-[color,box-shadow]',
+					'focus-ring'
+				)}
+			>
+				<svg viewBox="0 0 16 16" class="h-4 w-4" fill="currentColor" aria-hidden="true">
+					<path
+						d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+					/>
+				</svg>
+			</a>
 
-			<OverflowMenu onReset={resetSelection} {theme} {themeOptions} />
+			<OverflowMenu
+				onReset={resetSelection}
+				{theme}
+				{themeOptions}
+				{basis}
+				onBasisChange={setBasis}
+				intraday={isIntradayRange(range)}
+			/>
 		</div>
 	</header>
 
-	<section class="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-4 sm:px-6">
-		<div class="flex flex-wrap items-baseline gap-x-6 gap-y-2">
-			{#if data}
-				{#each data.series as s (s.symbol)}
-					{@const cls = pctClass(s.summary.pctChange)}
-					<div>
-						<div class={cn('text-2xl font-semibold tracking-tight tabular-nums', cls)}>
-							{formatPct(s.summary.pctChange, 1)}
-						</div>
-						<div class="mt-0.5 flex items-center gap-1.5 text-xs text-(--color-muted-foreground)">
-							<span
-								class="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-								style="background: {colorFor(s.symbol)}"
-							></span>
-							<span>{s.symbol}</span>
-						</div>
-					</div>
-				{/each}
-			{/if}
-		</div>
+	<section class="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 pb-4 sm:px-6">
+		<SeriesList
+			{symbols}
+			{kindFor}
+			{colorFor}
+			{summaryFor}
+			{nameFor}
+			onRemove={removeSymbol}
+			onRequestName={requestName}
+		/>
 
-		<div class="ml-auto inline-flex items-center gap-1" role="radiogroup" aria-label="Time range">
+		<div class="ml-auto inline-flex items-center gap-0.5" role="radiogroup" aria-label="Time range">
 			{#each RANGES as r (r)}
 				<button
 					type="button"
 					role="radio"
 					aria-checked={range === r}
 					class={cn(
-						'inline-flex h-7 items-center justify-center rounded-full px-3 text-xs font-medium tracking-wide transition-colors',
+						'inline-flex h-7 items-center justify-center rounded-full px-2.5 text-xs font-medium transition-colors',
+						r !== 'MAX' && 'tracking-wide',
 						range === r
 							? 'bg-(--color-accent) text-(--color-foreground)'
 							: 'text-(--color-muted-foreground) hover:bg-(--color-accent) hover:text-(--color-foreground)'
 					)}
 					onclick={(e) => {
+						if (range !== r) captureEvent('range_changed', { range: r });
 						range = r;
 						(e.currentTarget as HTMLButtonElement).blur();
-						captureEvent('range_changed', { range: r });
 						void load();
 					}}
 				>
@@ -964,7 +825,7 @@
 								</svg>
 								<span>Loading…</span>
 							{:else}
-								<span>Add a ticker to begin.</span>
+								<span>Add a symbol to begin.</span>
 							{/if}
 						</div>
 					{/if}

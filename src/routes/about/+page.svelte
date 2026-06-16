@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { cn } from '$lib/utils.js';
+	import Logo from '$lib/components/ui/Logo.svelte';
 </script>
 
 <svelte:head>
@@ -11,20 +12,25 @@
 	/>
 </svelte:head>
 
+<header class="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
+	<a href={resolve('/')} aria-label="Lift home" class="mr-1 inline-flex shrink-0 items-center">
+		<Logo class="h-5 w-auto text-(--color-foreground)" />
+	</a>
+	<a
+		href={resolve('/')}
+		class={cn(
+			'ml-auto inline-flex h-9 items-center justify-center rounded-full border px-4 text-sm font-medium',
+			'bg-(--color-card) text-(--color-card-foreground) hover:bg-(--color-muted)',
+			'border-(--color-input) transition-[color,box-shadow]',
+			'focus-ring'
+		)}
+	>
+		Go to App
+	</a>
+</header>
+
 <div class="mx-auto max-w-3xl px-4 py-10 sm:px-6">
-	<header class="mb-10 flex items-center justify-between gap-4">
-		<h1 class="text-2xl font-semibold tracking-tight">About Lift</h1>
-		<a
-			href={resolve('/')}
-			class={cn(
-				'inline-flex h-9 items-center justify-center rounded-full border px-4 text-sm font-medium',
-				'bg-(--color-card) text-(--color-card-foreground) hover:bg-(--color-muted)',
-				'border-(--color-input) transition-colors focus:border-(--color-ring) focus:outline-none'
-			)}
-		>
-			← Back
-		</a>
-	</header>
+	<h1 class="mb-10 text-3xl font-semibold tracking-tight">About Lift</h1>
 
 	<div class="space-y-8 text-sm leading-relaxed">
 		<section>

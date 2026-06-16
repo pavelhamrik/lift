@@ -5,8 +5,9 @@ import { SlidingWindowThrottle } from '$lib/server/throttle.js';
 import { checkEdgeRateLimit } from '$lib/server/ratelimit.js';
 import { isFixtureMode } from '$lib/providers/index.js';
 import { BENCHMARKS, isBenchmarkSymbol } from '$lib/benchmarks.js';
-
-const SYMBOL_RE = /^[A-Z\^.\-]{1,8}$/;
+import { isValidSymbol } from '$lib/selection.js';
+import { kindForAsset } from '$lib/symbols.js';
+import type { SeriesKind } from '$lib/providers/types.js';
 
 // Yahoo's public search endpoint resolves a symbol to its display name without
 // a crumb/cookie, so it works on the Workers runtime. (We avoid yahoo-finance2
@@ -15,7 +16,13 @@ const YAHOO_SEARCH_BASE = 'https://query1.finance.yahoo.com/v1/finance/search';
 const YAHOO_UA =
 	'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-type LookupResult = { symbol: string; name: string; currency?: string };
+type LookupResult = {
+	symbol: string;
+	name: string;
+	asset: 'EQUITY' | 'ETF' | 'INDEX';
+	kind: SeriesKind;
+	currency?: string;
+};
 type CachedEntry = { kind: 'found'; value: LookupResult } | { kind: 'notfound' };
 
 type YahooSearchResponse = {
@@ -23,6 +30,7 @@ type YahooSearchResponse = {
 		symbol?: string;
 		shortname?: string;
 		longname?: string;
+		quoteType?: string;
 		currency?: string;
 	}>;
 };
@@ -40,24 +48,37 @@ function clientKey(request: Request, getClientAddress: () => string): string {
 	}
 }
 
+function supportedAsset(quoteType: string | undefined): 'EQUITY' | 'ETF' | 'INDEX' | null {
+	const qt = (quoteType ?? '').toUpperCase();
+	if (qt === 'EQUITY') return 'EQUITY';
+	if (qt === 'ETF') return 'ETF';
+	if (qt === 'INDEX') return 'INDEX';
+	return null;
+}
+
 export const GET: RequestHandler = async ({ url, request, getClientAddress, platform }) => {
 	const raw = (url.searchParams.get('symbol') ?? '').trim().toUpperCase();
 	if (!raw) throw error(400, 'symbol required');
-	if (!SYMBOL_RE.test(raw)) throw error(400, 'invalid symbol');
+	if (!isValidSymbol(raw)) throw error(400, 'invalid symbol');
 
 	// Fixture mode: short-circuit before the throttle, edge cache, and Yahoo
 	// search fetch. Never touch the network in `npm run dev:static`.
 	if (isFixtureMode()) {
+		const asset: 'EQUITY' | 'ETF' | 'INDEX' = isBenchmarkSymbol(raw)
+			? BENCHMARKS[raw].asset
+			: 'EQUITY';
 		const result: LookupResult = {
 			symbol: raw,
 			name: isBenchmarkSymbol(raw) ? BENCHMARKS[raw].label : raw,
+			asset,
+			kind: kindForAsset(asset),
 			currency: isBenchmarkSymbol(raw) ? BENCHMARKS[raw].currency : 'USD'
 		};
 		return json(result, { headers: { 'X-Cache': 'fixture' } });
 	}
 
 	const tKey = clientKey(request, getClientAddress);
-	const edgeLimited = await checkEdgeRateLimit(platform, tKey);
+	const edgeLimited = await checkEdgeRateLimit(platform, `lookup:${tKey}`);
 	if (edgeLimited) return edgeLimited;
 	const gate = throttle.take(tKey);
 	if (!gate.ok) {
@@ -124,16 +145,21 @@ export const GET: RequestHandler = async ({ url, request, getClientAddress, plat
 		const res = await fetch(u, { headers: { 'User-Agent': YAHOO_UA, accept: 'application/json' } });
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 		searchJson = (await res.json()) as YahooSearchResponse;
-	} catch {
-		cache.set(lruKey, { kind: 'notfound' });
-		throw error(404, 'not found');
+	} catch (e) {
+		// Transient upstream failure (429/5xx/network) — do NOT poison the cache
+		// with a notfound; surface a distinct 502 so a retry can succeed.
+		console.error('yahoo lookup failed', raw, e);
+		throw error(502, 'lookup upstream failed');
 	}
 
 	const quotes = searchJson.quotes ?? [];
-	// Prefer an exact symbol match; fall back to the top-ranked result.
-	const match = quotes.find((q) => (q.symbol ?? '').toUpperCase() === raw) ?? quotes[0];
+	// Exact-equality only (Finding 4): the Enter-to-add path needs the symbol the
+	// user typed, not Yahoo's nearest guess. A typo or unsupported instrument
+	// (crypto/futures/FX) is a genuine 404 — safe to cache.
+	const match = quotes.find((q) => (q.symbol ?? '').toUpperCase() === raw);
+	const asset = supportedAsset(match?.quoteType);
 	const name = match?.longname ?? match?.shortname ?? '';
-	if (!match || !match.symbol || !name) {
+	if (!match || !match.symbol || !asset || !name) {
 		cache.set(lruKey, { kind: 'notfound' });
 		throw error(404, 'not found');
 	}
@@ -141,17 +167,19 @@ export const GET: RequestHandler = async ({ url, request, getClientAddress, plat
 	const result: LookupResult = {
 		symbol: match.symbol,
 		name,
+		asset,
+		kind: kindForAsset(asset),
 		currency: match.currency
 	};
 	cache.set(lruKey, { kind: 'found', value: result });
 
-	const body = JSON.stringify(result);
+	const responseBody = JSON.stringify(result);
 	const headers = {
 		'Content-Type': 'application/json',
 		'Cache-Control': 'public, max-age=0, s-maxage=86400',
 		'X-Cache': 'miss'
 	};
-	const out = new Response(body, { status: 200, headers });
+	const out = new Response(responseBody, { status: 200, headers });
 	if (edgeCaches && platform?.ctx) {
 		platform.ctx.waitUntil(edgeCaches.default.put(cacheKey, out.clone()));
 	} else if (edgeCaches) {

@@ -12,9 +12,10 @@ import {
 	type Time,
 	type UTCTimestamp
 } from 'lightweight-charts';
+import type { SeriesKind } from '$lib/providers/types.js';
 
 export type ThemeMode = 'light' | 'dark';
-export type SeriesKind = 'stock' | 'comparison';
+export type { SeriesKind };
 
 export type ChartTheme = {
 	bg: string;
@@ -55,14 +56,22 @@ export type ChartHandles = {
 };
 
 const STOCK_PALETTE_SLOTS: string[] = [
-	'--color-target',
-	'#10b981',
-	'#f59e0b',
-	'#f43f5e',
-	'#8b5cf6',
-	'#f97316',
-	'#14b8a6',
-	'#d946ef'
+	// Base shade (500)
+	'--color-target', // our custom primary
+	'#f59e0b', // amber-500
+	'#0ea5e9', // sky-500
+	'#a855f7', // purple-500
+	'#84cc16', // lime-500
+	'#ec4899', // pink-500
+	'#6366f1', // indigo-500
+	// One shade darker (600)
+	'#ea580c', // orange-600
+	'#16a34a', // green-600
+	'#ca8a04', // yellow-600
+	'#2563eb', // blue-600
+	'#7c3aed', // violet-600
+	'#c026d3', // fuchsia-600
+	'#e11d48' // rose-600
 ];
 
 const COMPARE_PALETTE_SLOTS: string[] = [
@@ -89,9 +98,9 @@ export function colorForSeries(
 	indexInKind: number,
 	root: HTMLElement = document.documentElement
 ): string {
-	const palette = kind === 'stock' ? STOCK_PALETTE_SLOTS : COMPARE_PALETTE_SLOTS;
+	const palette = kind === 'equity' ? STOCK_PALETTE_SLOTS : COMPARE_PALETTE_SLOTS;
 	const slot = palette[indexInKind % palette.length];
-	const fallback = kind === 'stock' ? '#0ea5e9' : '#6b7280';
+	const fallback = kind === 'equity' ? '#0ea5e9' : '#6b7280';
 	return resolveColorSlot(slot, fallback, root);
 }
 
@@ -145,8 +154,8 @@ export function mountChart(container: HTMLElement, theme: ChartTheme): ChartHand
 	function lineOptions(kind: SeriesKind, color: string) {
 		return {
 			color,
-			lineWidth: (kind === 'stock' ? 2 : 1.5) as 1 | 2 | 3 | 4,
-			lineStyle: kind === 'stock' ? LineStyle.Solid : LineStyle.Dashed,
+			lineWidth: (kind === 'equity' ? 2 : 1.5) as 1 | 2 | 3 | 4,
+			lineStyle: kind === 'equity' ? LineStyle.Solid : LineStyle.Dashed,
 			priceFormat: {
 				type: 'custom' as const,
 				formatter: (v: number) => `${v.toFixed(2)}%`,
