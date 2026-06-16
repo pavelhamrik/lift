@@ -103,6 +103,13 @@ scheduled (non-blocking) job after launch — not in PR CI.
 Charts powered by [TradingView Lightweight Charts](https://www.tradingview.com/). The
 TradingView attribution is required on public pages where the chart is rendered.
 
+## Legal
+
+- Hosted-service terms: `/terms`
+- Privacy policy: `/privacy`
+- Source code: [MIT License](LICENSE)
+- Analytics operator checklist: [docs/analytics-privacy.md](docs/analytics-privacy.md)
+
 ## Out of scope (v1)
 
 Autocomplete, multiple comparison targets, non-US listings, rVol, persistence beyond

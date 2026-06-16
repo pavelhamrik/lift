@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Popover } from 'bits-ui';
+	import { resolve } from '$app/paths';
 	import type { SupabaseClient, User } from '@supabase/supabase-js';
 	import { parseSelection, type StoredSelection } from '$lib/selection.js';
 	import { cn } from '$lib/utils.js';
@@ -203,6 +204,13 @@
 							{#if authError}
 								<p class="text-xs text-(--color-destructive)">{authError}</p>
 							{/if}
+							<p class="text-[11px] leading-relaxed text-(--color-muted-foreground)">
+								By continuing, you agree to the
+								<a href={resolve('/terms')} class="underline underline-offset-2">Terms</a>
+								and acknowledge the
+								<a href={resolve('/privacy')} class="underline underline-offset-2">Privacy Policy</a
+								>.
+							</p>
 							<button
 								type="submit"
 								disabled={sending || !email.trim()}

@@ -1,6 +1,7 @@
 import type { PriceProvider } from './types.js';
 import { defaultFetch, makeYahooProvider, type FetchChart } from './yahoo.js';
 import { fixtureFetch } from './fixtures.js';
+import { withCachedFetch } from '../server/cached-fetch.js';
 
 let cached: PriceProvider | null = null;
 
@@ -28,7 +29,11 @@ export function getChartFetcher(): FetchChart {
 }
 
 export function getProvider(): PriceProvider {
-	if (!cached) cached = makeYahooProvider(getChartFetcher());
+	// The cache + single-flight is a FetchChart decorator beneath the provider,
+	// wrapping the SAME selector — so the boundary, routes, and contract tests are
+	// unchanged. It only does work when the endpoint MultiResponse LRU + edge cache
+	// miss (range flip, add/remove ticker) but a per-symbol raw is still warm.
+	if (!cached) cached = makeYahooProvider(withCachedFetch(getChartFetcher()));
 	return cached;
 }
 

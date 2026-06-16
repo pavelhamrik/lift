@@ -1,7 +1,17 @@
 # Plan 2 — Cache-first fetching (stop hitting the API needlessly)
 
 - **Date:** 2026-06-10 (revised 2026-06-12 after review)
-- **Status:** Proposed
+- **Status:** Implemented 2026-06-12 — `src/lib/server/cached-fetch.ts` (`withCachedFetch`),
+  wired in `providers/index.ts`; client cancellation (B1) in `+page.svelte`; tests in
+  `tests/cached-fetch.test.ts`. TTL kept at 60s (plan default). Behavior reference:
+  [../caching.md](../caching.md).
+- **Review adjustments (2026-06-13):** (1) the single `max: 96` count cap became **split
+  interval-aware caps** — intraday `1m`/`5m` `max: 32`, daily+ `1d`/`1wk`/`1mo` `max: 96` —
+  because the cache is per-isolate (shared across clients), so intraday memory isn't bounded
+  by one request's 16 symbols; this is the "weight the cap by interval" refinement the Memory
+  section flagged as optional. (2) Intervals we don't widen (`15m`/`30m`/`1h`) now **bypass**
+  the cache + single-flight entirely — a time-bound-free key is only sound when a fixed
+  canonical window guarantees coverage, so un-widened intervals must not be cached.
 - **Related:** [2026-06-10-static-data-dev-toggle.md](./2026-06-10-static-data-dev-toggle.md)
 
 > **⚠️ Partly superseded by [2026-06-13-unified-symbol-entry.md](./2026-06-13-unified-symbol-entry.md).**
