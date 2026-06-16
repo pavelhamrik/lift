@@ -1,13 +1,15 @@
 <script lang="ts">
 	import { Popover } from 'bits-ui';
 	import type { SupabaseClient, User } from '@supabase/supabase-js';
-	import type { StoredSelection } from '$lib/selection.js';
+	import { parseSelection, type StoredSelection } from '$lib/selection.js';
 	import { cn } from '$lib/utils.js';
 
+	// `selection` is whatever JSON was stored — validate it before trusting the
+	// shape (no users yet, so a stale/old-shape row is skipped, not migrated).
 	type SavedRow = {
 		id: string;
 		name: string;
-		selection: StoredSelection;
+		selection: unknown;
 		updated_at: string;
 	};
 
@@ -19,6 +21,11 @@
 	};
 
 	let { supabase, user, selection, onLoad }: Props = $props();
+
+	/** Re-validate a stored row's selection through the shared parser. */
+	function parseRow(row: SavedRow): StoredSelection | null {
+		return parseSelection(JSON.stringify(row.selection));
+	}
 
 	let open = $state(false);
 
@@ -39,7 +46,7 @@
 	let listError = $state<string | null>(null);
 
 	function defaultName(): string {
-		return selection.stocks.join(', ') || 'Comparison';
+		return selection.symbols.join(', ') || 'Comparison';
 	}
 
 	async function sendMagicLink() {
@@ -98,7 +105,12 @@
 	}
 
 	function applySaved(row: SavedRow) {
-		onLoad(row.selection);
+		const parsed = parseRow(row);
+		if (!parsed) {
+			listError = 'That saved view is no longer valid.';
+			return;
+		}
+		onLoad(parsed);
 		open = false;
 	}
 
@@ -120,8 +132,8 @@
 		class={cn(
 			'inline-flex h-9 items-center justify-center gap-1.5 rounded-full border px-4 text-sm font-medium',
 			'bg-(--color-card) text-(--color-card-foreground) hover:bg-(--color-muted)',
-			'border-(--color-input) transition-colors',
-			'focus:border-(--color-ring) focus:outline-none',
+			'border-(--color-input) transition-[color,box-shadow]',
+			'focus-ring',
 			'data-[state=open]:border-(--color-ring)'
 		)}
 	>
@@ -145,7 +157,7 @@
 			sideOffset={6}
 			align="end"
 			class={cn(
-				'z-50 w-[20rem] max-h-[min(80vh,30rem)] overflow-y-auto',
+				'z-50 max-h-[min(80vh,30rem)] w-[20rem] overflow-y-auto',
 				'rounded-[var(--radius)] border shadow-md outline-none',
 				'bg-(--color-popover) text-(--color-popover-foreground)',
 				'border-(--color-border) p-3'
@@ -156,8 +168,8 @@
 					<div class="space-y-1.5">
 						<div class="text-sm font-medium">Check your inbox</div>
 						<p class="text-xs text-(--color-muted-foreground)">
-							We sent a sign-in link to <span class="text-(--color-foreground)">{email}</span>.
-							Open it on this device to finish signing in.
+							We sent a sign-in link to <span class="text-(--color-foreground)">{email}</span>. Open
+							it on this device to finish signing in.
 						</p>
 					</div>
 				{:else}
@@ -185,7 +197,7 @@
 									'h-9 w-full rounded-[calc(var(--radius)-2px)] border px-3 text-sm',
 									'bg-(--color-card) text-(--color-card-foreground)',
 									'placeholder:text-(--color-muted-foreground)',
-									'border-(--color-input) focus:border-(--color-ring) focus:outline-none'
+									'border-(--color-input) focus-ring'
 								)}
 							/>
 							{#if authError}
@@ -198,7 +210,7 @@
 									'inline-flex h-9 items-center justify-center rounded-full border px-4 text-sm font-medium',
 									'bg-(--color-foreground) text-(--color-background) hover:opacity-90',
 									'border-transparent transition-opacity',
-									'disabled:opacity-50 disabled:cursor-not-allowed'
+									'disabled:cursor-not-allowed disabled:opacity-50'
 								)}
 							>
 								{sending ? 'Sending…' : 'Send magic link'}
@@ -225,7 +237,7 @@
 									'h-8 min-w-0 flex-1 rounded-[calc(var(--radius)-2px)] border px-2.5 text-sm',
 									'bg-(--color-card) text-(--color-card-foreground)',
 									'placeholder:text-(--color-muted-foreground)',
-									'border-(--color-input) focus:border-(--color-ring) focus:outline-none'
+									'border-(--color-input) focus-ring'
 								)}
 							/>
 							<button
@@ -248,7 +260,9 @@
 					<div class="h-px bg-(--color-border)"></div>
 
 					<div class="space-y-1.5">
-						<div class="text-[11px] font-medium tracking-wide text-(--color-muted-foreground) uppercase">
+						<div
+							class="text-[11px] font-medium tracking-wide text-(--color-muted-foreground) uppercase"
+						>
 							Saved
 						</div>
 						{#if loadingList}
@@ -273,7 +287,7 @@
 										>
 											<span class="truncate">{row.name}</span>
 											<span class="ml-1.5 text-[11px] text-(--color-muted-foreground)">
-												{row.selection.stocks?.join(', ')}
+												{parseRow(row)?.symbols.join(', ') ?? ''}
 											</span>
 										</button>
 										<button

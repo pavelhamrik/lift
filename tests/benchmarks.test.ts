@@ -3,22 +3,29 @@ import {
 	BENCHMARKS,
 	BENCHMARK_GROUP_LABELS,
 	BENCHMARK_GROUP_ORDER,
-	groupedBenchmarks,
-	effectiveReturnBasis
+	groupedBenchmarks
 } from '../src/lib/benchmarks.js';
 
 describe('BENCHMARKS allowlist', () => {
-	it('every entry has a group, currency, and policy', () => {
+	it('every entry has a group, currency, and explicit asset', () => {
 		for (const [, entry] of Object.entries(BENCHMARKS)) {
 			expect(entry.group).toMatch(/^(US|Europe|Global|APAC)$/);
 			expect(entry.currency).toMatch(/^[A-Z]{3}$/);
-			expect(entry.policy === 'price-only' || entry.policy === 'total-return').toBe(true);
+			expect(entry.asset === 'INDEX' || entry.asset === 'ETF').toBe(true);
 		}
 	});
 
-	it('indices use price-only policy, ETFs use total-return', () => {
+	it('every ^-prefixed key and the .SS pair is an INDEX, not inferred from a policy proxy', () => {
 		for (const [symbol, entry] of Object.entries(BENCHMARKS)) {
-			if (symbol.startsWith('^')) expect(entry.policy).toBe('price-only');
+			if (symbol.startsWith('^') || symbol.endsWith('.SS')) {
+				expect(entry.asset).toBe('INDEX');
+			}
+		}
+	});
+
+	it('the ETF proxies are typed ETF', () => {
+		for (const sym of ['SPY', 'QQQ', 'IWM', 'URTH', 'EEM', 'ACWI']) {
+			expect(BENCHMARKS[sym as keyof typeof BENCHMARKS].asset).toBe('ETF');
 		}
 	});
 
@@ -32,20 +39,5 @@ describe('BENCHMARKS allowlist', () => {
 		for (const group of BENCHMARK_GROUP_ORDER) {
 			expect(BENCHMARK_GROUP_LABELS[group]).toBeTruthy();
 		}
-	});
-});
-
-describe('effectiveReturnBasis with non-US benchmarks', () => {
-	it('FTSE 100 on 1Y is price-only (index policy)', () => {
-		expect(effectiveReturnBasis('1Y', '^FTSE')).toBe('price-only');
-	});
-
-	it('URTH (MSCI World ETF) on 1Y is total-return', () => {
-		expect(effectiveReturnBasis('1Y', 'URTH')).toBe('total-return');
-	});
-
-	it('1D forces price-only regardless of benchmark', () => {
-		expect(effectiveReturnBasis('1D', 'URTH')).toBe('price-only');
-		expect(effectiveReturnBasis('1D', '^N225')).toBe('price-only');
 	});
 });

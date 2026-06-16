@@ -12,9 +12,10 @@ import {
 	type Time,
 	type UTCTimestamp
 } from 'lightweight-charts';
+import type { SeriesKind } from '$lib/providers/types.js';
 
 export type ThemeMode = 'light' | 'dark';
-export type SeriesKind = 'stock' | 'comparison';
+export type { SeriesKind };
 
 export type ChartTheme = {
 	bg: string;
@@ -97,9 +98,9 @@ export function colorForSeries(
 	indexInKind: number,
 	root: HTMLElement = document.documentElement
 ): string {
-	const palette = kind === 'stock' ? STOCK_PALETTE_SLOTS : COMPARE_PALETTE_SLOTS;
+	const palette = kind === 'equity' ? STOCK_PALETTE_SLOTS : COMPARE_PALETTE_SLOTS;
 	const slot = palette[indexInKind % palette.length];
-	const fallback = kind === 'stock' ? '#0ea5e9' : '#6b7280';
+	const fallback = kind === 'equity' ? '#0ea5e9' : '#6b7280';
 	return resolveColorSlot(slot, fallback, root);
 }
 
@@ -153,8 +154,8 @@ export function mountChart(container: HTMLElement, theme: ChartTheme): ChartHand
 	function lineOptions(kind: SeriesKind, color: string) {
 		return {
 			color,
-			lineWidth: (kind === 'stock' ? 2 : 1.5) as 1 | 2 | 3 | 4,
-			lineStyle: kind === 'stock' ? LineStyle.Solid : LineStyle.Dashed,
+			lineWidth: (kind === 'equity' ? 2 : 1.5) as 1 | 2 | 3 | 4,
+			lineStyle: kind === 'equity' ? LineStyle.Solid : LineStyle.Dashed,
 			priceFormat: {
 				type: 'custom' as const,
 				formatter: (v: number) => `${v.toFixed(2)}%`,

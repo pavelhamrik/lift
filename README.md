@@ -22,6 +22,7 @@ index/ETF on a single normalized-percent chart, with the target's volume in a su
     sessions don't coincide — AAPL is open while Nikkei is closed and vice-versa.
     Daily / weekly / monthly bars are normalized to the bar's exchange-local
     calendar date (UTC-midnight), so 1M+ ranges align correctly across sessions.
+
 - **Provider**: Yahoo via `yahoo-finance2`, abstracted behind a `PriceProvider`
   interface so swapping data sources stays local to `src/lib/providers/`.
 
@@ -54,15 +55,19 @@ Scope and caveats:
   US open, or a cross-market intraday compare) can legitimately return empty —
   exactly as live would. Daily and longer ranges always populate.
 - **Build modes always use the real provider.** `npm run preview` and
-  `wrangler dev` run a *production* build, where the fixtures are tree-shaken out
+  `wrangler dev` run a _production_ build, where the fixtures are tree-shaken out
   entirely — so they hit real Yahoo regardless of the env var. The static toggle
   is `vite dev` only.
 
-The API endpoint is `GET /api/history?symbol=AAPL&benchmark=SPY&range=1Y`. It
-canonicalizes the request, validates against the symbol regex and benchmark
-allowlist, throttles per-IP (sliding window), caches the response in-process
-(LRU + 1-min TTL), and — when running on Cloudflare Workers — also writes to
-`caches.default` keyed by the canonical request URL.
+The chart endpoint is `GET /api/history-multi?symbols=AAPL,SPY&basis=total&range=1Y`
+— one ordered `symbols` list (kind is derived per symbol: Yahoo `INDEX` → gray
+dashed, else colored solid), a `basis` toggle (`total`/`price`), and a `range`.
+It validates each symbol, clamps to `MAX_SYMBOLS`, aligns the series by union +
+forward-fill on a common baseline, throttles per-IP (sliding window), caches the
+response in-process (LRU + 1-min TTL), and — on Cloudflare Workers — also writes
+to `caches.default` keyed by the request URL. Two helper endpoints back the
+search box: `GET /api/search?q=…` (ranked, type-filtered matches) and
+`GET /api/lookup?symbol=…` (exact single-symbol resolution).
 
 ## Build / preview / deploy
 

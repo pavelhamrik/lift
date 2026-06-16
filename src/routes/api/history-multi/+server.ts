@@ -5,42 +5,34 @@ import { SlidingWindowThrottle } from '$lib/server/throttle.js';
 import { checkEdgeRateLimit } from '$lib/server/ratelimit.js';
 import { isTargetInScope } from '$lib/server/scope.js';
 import {
-	BENCHMARKS,
 	DEFAULT_RANGE,
 	intervalForRange,
-	isBenchmarkSymbol,
 	isIntradayRange,
-	periodForRange,
-	type BenchmarkSymbol
+	periodForRange
 } from '$lib/benchmarks.js';
+import { isValidSymbol, MAX_SYMBOLS, parseBasis } from '$lib/selection.js';
 import { getProvider } from '$lib/providers/index.js';
 import {
 	RANGES,
 	type Bar,
 	type HistoryRequest,
+	type HistoryResult,
 	type Interval,
 	type Range,
+	type ReturnBasis,
+	type SeriesKind,
 	type SessionPolicy
 } from '$lib/providers/types.js';
-import { windowedPctChange } from '$lib/chart/normalize.js';
-
-const SYMBOL_RE = /^[A-Z\^.\-]{1,8}$/;
-const MAX_STOCKS = 8;
-const MAX_COMPARES = 8;
-
-type ClosePoint = { time: number; close: number };
-
-type SeriesKind = 'stock' | 'comparison';
+import { unionForwardFill, windowedPctChange, type ClosePoint } from '$lib/chart/normalize.js';
 
 type Series = {
 	symbol: string;
 	kind: SeriesKind;
+	asset: 'EQUITY' | 'ETF' | 'INDEX';
 	currency: string;
 	aligned: ClosePoint[];
-	summary: { lastPrice: number; lastPriceTime: number; pctChange: number };
+	summary: { lastPrice: number; lastPriceTime: number; pctChange?: number };
 };
-
-type ReturnBasis = 'price-only' | 'total-return' | 'mixed';
 
 type MultiResponse = {
 	series: Series[];
@@ -51,6 +43,7 @@ type MultiResponse = {
 		timezone: string;
 		windowStart: number;
 		windowEnd: number;
+		baseTime: number;
 		returnBasis: ReturnBasis;
 	};
 };
@@ -82,94 +75,30 @@ function parseCsvSymbols(raw: string | null): string[] {
 	return out;
 }
 
-function pickReturnBasis(compares: BenchmarkSymbol[]): ReturnBasis {
-	if (compares.length === 0) return 'price-only';
-	let hasTR = false;
-	let hasPO = false;
-	for (const c of compares) {
-		if (BENCHMARKS[c].policy === 'total-return') hasTR = true;
-		else hasPO = true;
-	}
-	if (hasTR && hasPO) return 'mixed';
-	return hasTR ? 'total-return' : 'price-only';
-}
-
-function buildRequest(range: Range, compares: BenchmarkSymbol[], now: Date): HistoryRequest {
-	const { period1, period2 } = periodForRange(range, now);
-	const adjusted =
-		!isIntradayRange(range) && compares.some((c) => BENCHMARKS[c].policy === 'total-return');
-	return {
-		interval: intervalForRange(range),
-		session: 'regular',
-		adjusted,
-		period1,
-		period2
-	};
-}
-
-function intersectionTimes(barsBySymbol: Map<string, Bar[]>): number[] {
-	let common: Set<number> | null = null;
-	for (const bars of barsBySymbol.values()) {
-		const s = new Set<number>();
-		for (const b of bars) s.add(b.time);
-		if (common === null) {
-			common = s;
-		} else {
-			const next = new Set<number>();
-			for (const t of common) if (s.has(t)) next.add(t);
-			common = next;
-		}
-		if (common.size === 0) return [];
-	}
-	if (!common) return [];
-	return [...common].sort((a, b) => a - b);
-}
-
-function alignBars(bars: Bar[], times: number[]): ClosePoint[] {
-	const byTime = new Map<number, number>();
-	for (const b of bars) byTime.set(b.time, b.close);
-	const out: ClosePoint[] = [];
-	for (const t of times) {
-		const c = byTime.get(t);
-		if (c !== undefined) out.push({ time: t, close: c });
-	}
-	return out;
-}
-
-function alignVolume(bars: Bar[], times: number[]): { time: number; volume: number }[] {
-	const byTime = new Map<number, number>();
-	for (const b of bars) byTime.set(b.time, b.volume);
-	const out: { time: number; volume: number }[] = [];
-	for (const t of times) {
-		const v = byTime.get(t);
-		if (v !== undefined) out.push({ time: t, volume: v });
-	}
-	return out;
-}
-
 export const GET: RequestHandler = async ({ url, request, getClientAddress, platform }) => {
-	const stocks = parseCsvSymbols(url.searchParams.get('stocks'));
-	const comparesRaw = parseCsvSymbols(url.searchParams.get('compares'));
+	const symbols = parseCsvSymbols(url.searchParams.get('symbols'));
 	const rangeRaw = (url.searchParams.get('range') ?? '').trim().toUpperCase();
 	const range = (rangeRaw || DEFAULT_RANGE) as Range;
 
-	if (stocks.length === 0) throw error(400, 'at least one stock is required');
-	if (stocks.length > MAX_STOCKS) throw error(400, `at most ${MAX_STOCKS} stocks`);
-	if (comparesRaw.length > MAX_COMPARES) throw error(400, `at most ${MAX_COMPARES} compares`);
+	if (symbols.length === 0) throw error(400, 'at least one symbol is required');
+	if (symbols.length > MAX_SYMBOLS) throw error(400, `at most ${MAX_SYMBOLS} symbols`);
 	if (!(RANGES as ReadonlyArray<string>).includes(range)) {
 		throw error(400, `range must be one of: ${RANGES.join(', ')}`);
 	}
-	for (const s of stocks) {
-		if (!SYMBOL_RE.test(s)) throw error(400, `invalid stock symbol: ${s}`);
-	}
-	const compares: BenchmarkSymbol[] = [];
-	for (const c of comparesRaw) {
-		if (!isBenchmarkSymbol(c)) throw error(400, `unsupported benchmark: ${c}`);
-		compares.push(c);
+	for (const s of symbols) {
+		if (!isValidSymbol(s)) throw error(400, `invalid symbol: ${s}`);
 	}
 
+	// Basis: a bad client param should surface (400), not silently default — but
+	// an absent param degrades to the shared default.
+	const basisRaw = url.searchParams.get('basis');
+	if (basisRaw !== null && basisRaw !== 'total' && basisRaw !== 'price') {
+		throw error(400, "basis must be 'total' or 'price'");
+	}
+	const basis = parseBasis(basisRaw);
+
 	const tKey = clientKey(request, getClientAddress);
-	const edgeLimited = await checkEdgeRateLimit(platform, tKey);
+	const edgeLimited = await checkEdgeRateLimit(platform, `history:${tKey}`);
 	if (edgeLimited) return edgeLimited;
 	const gate = throttle.take(tKey);
 	if (!gate.ok) {
@@ -179,11 +108,11 @@ export const GET: RequestHandler = async ({ url, request, getClientAddress, plat
 		});
 	}
 
-	const lruKey = `multi|${stocks.join(',')}|${compares.join(',')}|${range}`;
+	const lruKey = `multi|${symbols.join(',')}|${basis}|${range}`;
 	const cacheUrl = (() => {
 		const u = new URL('/api/history-multi', url.origin);
-		u.searchParams.set('stocks', stocks.join(','));
-		u.searchParams.set('compares', compares.join(','));
+		u.searchParams.set('symbols', symbols.join(','));
+		u.searchParams.set('basis', basis === 'total-return' ? 'total' : 'price');
 		u.searchParams.set('range', range);
 		return u.toString();
 	})();
@@ -229,66 +158,79 @@ export const GET: RequestHandler = async ({ url, request, getClientAddress, plat
 	}
 
 	const provider = getProvider();
-	const req = buildRequest(range, compares, new Date());
-
-	const allSymbols: Array<{ symbol: string; kind: SeriesKind }> = [
-		...stocks.map((s) => ({ symbol: s, kind: 'stock' as const })),
-		...compares.map((s) => ({ symbol: s, kind: 'comparison' as const }))
-	];
+	const { period1, period2 } = periodForRange(range, new Date());
+	// Return basis applies to daily-and-longer only; intraday is always price-only.
+	const adjusted = !isIntradayRange(range) && basis === 'total-return';
+	const req: HistoryRequest = {
+		interval: intervalForRange(range),
+		session: 'regular',
+		adjusted,
+		period1,
+		period2
+	};
 
 	const settled = await Promise.all(
-		allSymbols.map(({ symbol }) =>
-			provider.getHistory(symbol, req).catch((e: unknown) => ({ error: e }))
-		)
+		symbols.map((symbol) => provider.getHistory(symbol, req).catch((e: unknown) => ({ error: e })))
 	);
 
-	const fetched = new Map<
-		string,
-		{ kind: SeriesKind; result: Awaited<ReturnType<typeof provider.getHistory>>['result'] }
-	>();
-	for (let i = 0; i < allSymbols.length; i++) {
-		const { symbol, kind } = allSymbols[i];
+	const fetched = new Map<string, HistoryResult>();
+	for (let i = 0; i < symbols.length; i++) {
+		const symbol = symbols[i];
 		const r = settled[i];
 		if ('error' in r) {
 			console.error('provider error', symbol, r.error);
 			throw error(502, `unable to fetch ${symbol}`);
 		}
-		if (kind === 'stock' && !isTargetInScope(r.result.meta)) {
+		// Every symbol must be a supported instrument now — not just the old "stocks".
+		if (!isTargetInScope(r.result.meta)) {
 			throw error(400, `${symbol} is not a supported instrument (equity, ETF, or index)`);
 		}
-		fetched.set(symbol, { kind, result: r.result });
+		fetched.set(symbol, r.result);
 	}
+
+	const kindOf = (symbol: string): SeriesKind =>
+		fetched.get(symbol)!.meta.asset === 'INDEX' ? 'index' : 'equity';
 
 	const barsBySymbol = new Map<string, Bar[]>();
-	for (const [sym, { result }] of fetched) {
-		barsBySymbol.set(sym, result.bars);
-	}
-	const commonTimes = intersectionTimes(barsBySymbol);
-	if (commonTimes.length === 0) {
-		throw error(502, 'no overlapping bars across requested symbols');
+	for (const [symbol, result] of fetched) barsBySymbol.set(symbol, result.bars);
+
+	// Union + forward-fill (LOCF) with a common baseline. A symbol with zero
+	// in-window bars yields an empty `aligned` (its line is absent); we only 502
+	// when *every* symbol is empty.
+	const { times, baseTime, aligned } = unionForwardFill(barsBySymbol);
+	const allEmpty = symbols.every((s) => (aligned.get(s)?.length ?? 0) === 0);
+	if (allEmpty) {
+		throw error(502, 'no data for requested symbols');
 	}
 
-	const series: Series[] = allSymbols.map(({ symbol, kind }) => {
-		const r = fetched.get(symbol)!.result;
-		const aligned = alignBars(r.bars, commonTimes);
+	const series: Series[] = symbols.map((symbol) => {
+		const result = fetched.get(symbol)!;
+		const a = aligned.get(symbol) ?? [];
 		return {
 			symbol,
-			kind,
-			currency: r.currency,
-			aligned,
+			kind: kindOf(symbol),
+			asset: result.meta.asset as 'EQUITY' | 'ETF' | 'INDEX',
+			currency: result.currency,
+			aligned: a,
 			summary: {
-				lastPrice: r.lastPrice,
-				lastPriceTime: r.lastPriceTime,
-				pctChange: windowedPctChange(aligned)
+				lastPrice: result.lastPrice,
+				lastPriceTime: result.lastPriceTime,
+				// close at baseTime → last (real or LOCF-carried-real) close = the
+				// rendered span. `undefined` for an empty/absent series → "—", not 0%.
+				pctChange: windowedPctChange(a, baseTime)
 			}
 		};
 	});
 
-	const primarySymbol = stocks[0];
-	const primary = fetched.get(primarySymbol)!.result;
+	// One server-chosen anchor drives both the volume sub-pane AND the tooltip's
+	// timezone, so they can never reference different series. Anchor = first equity
+	// in list order, else the first symbol. Ship the anchor's OWN raw bars (not
+	// intersected) so a sparse co-series can't zero out real volume bars.
+	const anchorSymbol = symbols.find((s) => kindOf(s) === 'equity') ?? symbols[0];
+	const anchorResult = fetched.get(anchorSymbol)!;
 	const primaryVolume = {
-		symbol: primarySymbol,
-		data: alignVolume(primary.bars, commonTimes)
+		symbol: anchorSymbol,
+		data: anchorResult.bars.map((b) => ({ time: b.time, volume: b.volume }))
 	};
 
 	const response: MultiResponse = {
@@ -297,10 +239,11 @@ export const GET: RequestHandler = async ({ url, request, getClientAddress, plat
 		meta: {
 			interval: req.interval,
 			session: req.session,
-			timezone: primary.timezone,
-			windowStart: commonTimes[0],
-			windowEnd: commonTimes[commonTimes.length - 1],
-			returnBasis: pickReturnBasis(compares)
+			timezone: anchorResult.timezone,
+			windowStart: times[0],
+			windowEnd: times[times.length - 1],
+			baseTime,
+			returnBasis: isIntradayRange(range) ? 'price-only' : basis
 		}
 	};
 

@@ -27,6 +27,14 @@ export function capturePageview(): void {
 	if (started) posthog.capture('$pageview');
 }
 
+/**
+ * Capture a product event. No-op until analytics are initialized (so it's safe
+ * to call unconditionally). Never pass raw user query text as a property.
+ */
+export function captureEvent(name: string, props?: Record<string, unknown>): void {
+	if (started) posthog.capture(name, props);
+}
+
 /** Tie analytics to a signed-in user so "who signed up" maps to behaviour. */
 export function identifyUser(id: string, email?: string): void {
 	if (started) posthog.identify(id, email ? { email } : undefined);

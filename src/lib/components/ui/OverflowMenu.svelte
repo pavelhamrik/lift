@@ -2,14 +2,23 @@
 	import { DropdownMenu } from 'bits-ui';
 	import { cn } from '$lib/utils.js';
 	import type { ThemeStore, ThemeMode } from '$lib/theme/mode.svelte.js';
+	import type { ReturnBasis } from '$lib/providers/types.js';
 
 	type Props = {
 		onReset: () => void;
 		theme: ThemeStore;
 		themeOptions: ThemeMode[];
+		basis: ReturnBasis;
+		onBasisChange: (basis: ReturnBasis) => void;
+		intraday: boolean;
 	};
 
-	let { onReset, theme, themeOptions }: Props = $props();
+	let { onReset, theme, themeOptions, basis, onBasisChange, intraday }: Props = $props();
+
+	const basisOptions: Array<{ value: ReturnBasis; label: string }> = [
+		{ value: 'price-only', label: 'Price' },
+		{ value: 'total-return', label: 'Total' }
+	];
 
 	const itemClass = cn(
 		'relative flex w-full cursor-default items-center gap-2.5 no-underline',
@@ -28,8 +37,8 @@
 		class={cn(
 			'inline-flex h-9 w-9 items-center justify-center rounded-full border text-sm',
 			'bg-(--color-card) text-(--color-card-foreground) hover:bg-(--color-muted)',
-			'border-(--color-input) transition-colors',
-			'focus:border-(--color-ring) focus:outline-none',
+			'border-(--color-input) transition-[color,box-shadow]',
+			'focus-ring',
 			'data-[state=open]:border-(--color-ring)'
 		)}
 	>
@@ -90,6 +99,70 @@
 					</a>
 				{/snippet}
 			</DropdownMenu.Item>
+
+			<DropdownMenu.Separator class="my-1 h-px bg-(--color-border)" />
+
+			<div class="px-2 py-1.5">
+				<div class="flex items-center justify-between gap-2">
+					<span
+						class="inline-flex items-center gap-1 text-[11px] font-medium tracking-wide text-(--color-muted-foreground) uppercase"
+					>
+						Return basis
+						<span
+							class="inline-flex cursor-help text-(--color-muted-foreground)"
+							title="Most indices are price-only and ignore this toggle. ETF proxies (e.g. SPY) include dividends."
+							aria-label="Most indices are price-only and ignore this toggle. ETF proxies like SPY include dividends."
+						>
+							<svg
+								viewBox="0 0 24 24"
+								class="h-3.5 w-3.5"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="1.75"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								aria-hidden="true"
+							>
+								<circle cx="12" cy="12" r="9" />
+								<path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.5-2.5 2-2.5 3.5" />
+								<circle cx="12" cy="17" r="0.6" fill="currentColor" />
+							</svg>
+						</span>
+					</span>
+					<DropdownMenu.RadioGroup
+						value={basis}
+						onValueChange={(v) => onBasisChange(v as ReturnBasis)}
+						class="inline-flex items-center gap-0.5 rounded-full border p-0.5"
+						style="border-color: var(--color-border)"
+						aria-label="Return basis"
+					>
+						{#each basisOptions as opt (opt.value)}
+							<DropdownMenu.RadioItem
+								value={opt.value}
+								closeOnSelect={false}
+								disabled={intraday}
+								title={opt.value === 'total-return'
+									? 'Dividend-adjusted total return'
+									: 'Price only'}
+								class={cn(
+									'inline-flex h-7 items-center justify-center rounded-full px-2.5 text-xs font-medium transition-colors outline-none',
+									'cursor-default text-(--color-muted-foreground)',
+									'data-[highlighted]:bg-(--color-accent) data-[highlighted]:text-(--color-foreground)',
+									'data-[state=checked]:bg-(--color-accent) data-[state=checked]:text-(--color-foreground)',
+									'data-[disabled]:pointer-events-none data-[disabled]:opacity-40'
+								)}
+							>
+								{opt.label}
+							</DropdownMenu.RadioItem>
+						{/each}
+					</DropdownMenu.RadioGroup>
+				</div>
+				{#if intraday}
+					<p class="mt-1.5 text-[11px] text-(--color-muted-foreground)">
+						Intraday ranges are always price-only.
+					</p>
+				{/if}
+			</div>
 
 			<DropdownMenu.Separator class="my-1 h-px bg-(--color-border)" />
 

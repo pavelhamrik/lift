@@ -7,17 +7,18 @@ endpoint hardened.
 
 ## Stack
 
-| Concern         | Choice                                         |
-|-----------------|------------------------------------------------|
-| Framework       | SvelteKit (Vite, TypeScript)                   |
-| Chart           | TradingView Lightweight Charts                 |
-| Data provider   | Yahoo (via `yahoo-finance2`), abstracted       |
-| Styling         | Tailwind v4 + shadcn-svelte                    |
-| Theme modes     | dark / light / system (default system)         |
-| Tests           | Vitest                                         |
+| Concern         | Choice                                                              |
+| --------------- | ------------------------------------------------------------------- |
+| Framework       | SvelteKit (Vite, TypeScript)                                        |
+| Chart           | TradingView Lightweight Charts                                      |
+| Data provider   | Yahoo (via `yahoo-finance2`), abstracted                            |
+| Styling         | Tailwind v4 + shadcn-svelte                                         |
+| Theme modes     | dark / light / system (default system)                              |
+| Tests           | Vitest                                                              |
 | Hosting (later) | Cloudflare Workers — Static Assets (`@sveltejs/adapter-cloudflare`) |
 
 Why these:
+
 - **SvelteKit** — reactive without the React `useEffect` footguns; server
   routes give us a clean place to hide provider details + harden the public
   endpoint.
@@ -56,8 +57,12 @@ src/
       mode.ts         # dark/light/system store, persisted
   routes/
     api/
-      history/
-        +server.ts    # GET /api/history?...
+      history-multi/
+        +server.ts    # GET /api/history-multi?symbols=…&basis=…&range=…
+      search/
+        +server.ts    # GET /api/search?q=…       (autocomplete)
+      lookup/
+        +server.ts    # GET /api/lookup?symbol=…  (exact resolve)
     +page.svelte      # the UI
     +layout.svelte    # font, mode-watcher, root data-theme attribute
 tests/
@@ -96,9 +101,9 @@ export type Interval = '1m' | '5m' | '1d';
 // Mixing adjusted close with raw OHL is incoherent; if we ever need real
 // candles, add a separate `ohlc?: { open; high; low; close }` (raw) field.
 export type Bar = {
-  time: number;   // unix seconds, UTC
-  close: number;  // adjusted if HistoryResult.adjusted=true, else raw
-  volume: number;
+	time: number; // unix seconds, UTC
+	close: number; // adjusted if HistoryResult.adjusted=true, else raw
+	volume: number;
 };
 
 export type SessionPolicy = 'regular' | 'extended';
@@ -111,9 +116,9 @@ export type SessionPolicy = 'regular' | 'extended';
 // (e.g. `range: '1Y'` with `interval: '1m'`, or asymmetric adjustment
 // between target and benchmark) unrepresentable below the route.
 export type HistoryRequest = {
-  interval: Interval;
-  session: SessionPolicy;
-  adjusted: boolean;
+	interval: Interval;
+	session: SessionPolicy;
+	adjusted: boolean;
 };
 
 // App-owned canonical metadata. Providers translate their native shape
@@ -122,15 +127,11 @@ export type HistoryRequest = {
 // provider strings, so swapping providers doesn't change the validation
 // surface in routes or tests.
 export type Country = 'US' | 'OTHER';
-export type Asset =
-  | 'US_LISTED_EQUITY'
-  | 'US_LISTED_ETF'
-  | 'US_INDEX'
-  | 'OTHER';
+export type Asset = 'US_LISTED_EQUITY' | 'US_LISTED_ETF' | 'US_INDEX' | 'OTHER';
 
 export type InstrumentMeta = {
-  country: Country;
-  asset: Asset;
+	country: Country;
+	asset: Asset;
 };
 
 // Server-internal — the provider returns this, the route consumes it
@@ -139,20 +140,20 @@ export type InstrumentMeta = {
 // provider-agnostic by construction so swapping providers doesn't
 // ripple through the alignment/summary logic that consumes it.
 export type HistoryResult = {
-  symbol: string;          // canonical, provider-independent (e.g. "^GSPC")
-  currency: string;        // ISO 4217, e.g. "USD"
-  timezone: string;        // IANA, e.g. "America/New_York"
-  interval: Interval;
-  session: SessionPolicy;
-  adjusted: boolean;       // true if close is split/dividend adjusted
-  meta: InstrumentMeta;    // used for in-scope checks (see Validation)
-  bars: Bar[];
-  // Latest traded price + its timestamp. On 1d this is yesterday's close;
-  // on 1m intraday it can be newer than the last aligned-window bar
-  // (which is why we keep this separate from windowed metrics — see
-  // server-route summary contract).
-  lastPrice: number;       // unadjusted
-  lastPriceTime: number;   // unix seconds, UTC
+	symbol: string; // canonical, provider-independent (e.g. "^GSPC")
+	currency: string; // ISO 4217, e.g. "USD"
+	timezone: string; // IANA, e.g. "America/New_York"
+	interval: Interval;
+	session: SessionPolicy;
+	adjusted: boolean; // true if close is split/dividend adjusted
+	meta: InstrumentMeta; // used for in-scope checks (see Validation)
+	bars: Bar[];
+	// Latest traded price + its timestamp. On 1d this is yesterday's close;
+	// on 1m intraday it can be newer than the last aligned-window bar
+	// (which is why we keep this separate from windowed metrics — see
+	// server-route summary contract).
+	lastPrice: number; // unadjusted
+	lastPriceTime: number; // unix seconds, UTC
 };
 
 // Server-internal — never serialized to the client. Carries the raw
@@ -160,20 +161,20 @@ export type HistoryResult = {
 // failures, but providerSymbol shape (e.g. "%5EGSPC") would otherwise
 // leak Yahoo specifics into the public API contract.
 export type ProviderTrace = {
-  providerName: string;     // e.g. "yahoo"
-  providerSymbol: string;   // what we actually queried (e.g. "%5EGSPC")
+	providerName: string; // e.g. "yahoo"
+	providerSymbol: string; // what we actually queried (e.g. "%5EGSPC")
 };
 
 export interface PriceProvider {
-  name: string;
-  // Returns the public result plus a server-internal trace. The route
-  // serializes only `result`; `trace` goes to logs.
-  getHistory(
-    symbol: string,
-    req: HistoryRequest
-  ): Promise<{ result: HistoryResult; trace: ProviderTrace }>;
-  // Optional: capability surface for tests/swaps.
-  supports(req: HistoryRequest): boolean;
+	name: string;
+	// Returns the public result plus a server-internal trace. The route
+	// serializes only `result`; `trace` goes to logs.
+	getHistory(
+		symbol: string,
+		req: HistoryRequest
+	): Promise<{ result: HistoryResult; trace: ProviderTrace }>;
+	// Optional: capability surface for tests/swaps.
+	supports(req: HistoryRequest): boolean;
 }
 ```
 
@@ -188,17 +189,17 @@ tests stay unchanged because they only deal with canonical types.
 (That said: provider migrations will still need fixture updates and a
 contract test pass, since canonical-shape conformance is what the
 abstraction actually buys you. The "new file + one-line change" claim
-applies to the *call sites*, not to verifying the new provider behaves.)
+applies to the _call sites_, not to verifying the new provider behaves.)
 
 The caller (server route) maps user-facing `(range, benchmark)` to a
 `HistoryRequest` once, then forwards only the request to the provider.
 **Adjustment is a property of the benchmark, not the range**, to keep
 target and benchmark on the same return basis — see the next subsection.
 
-| Range | Interval | Session   |
-|-------|----------|-----------|
-| 1D    | `1m`     | regular   |
-| 1Y    | `1d`     | regular   |
+| Range | Interval | Session |
+| ----- | -------- | ------- |
+| 1D    | `1m`     | regular |
+| 1Y    | `1d`     | regular |
 
 Both target and benchmark are fetched with **identical** `HistoryRequest`
 — same interval, same session, **same `adjusted`** — so their bars are
@@ -209,14 +210,14 @@ alignment).
 ### Adjustment policy is a property of the benchmark
 
 Adjusted close (Yahoo's `Adj Close`) folds dividends and splits into the
-price series, so it represents *total return*. Raw close represents
-*price-only return*. **Asymmetric adjustment between target and
+price series, so it represents _total return_. Raw close represents
+_price-only return_. **Asymmetric adjustment between target and
 benchmark systematically biases the comparison.** Concretely:
 
-- `^GSPC` is the S&P 500 *price index*. It has no dividend stream of its
+- `^GSPC` is the S&P 500 _price index_. It has no dividend stream of its
   own (constituents pay dividends, the index does not) and no splits
   (constituent splits are absorbed into the index divisor). So Yahoo's
-  `Adj Close` for `^GSPC` is *identical* to its `Close`.
+  `Adj Close` for `^GSPC` is _identical_ to its `Close`.
 - An individual US stock like `AAPL` has dividends and (historically)
   splits, so its `Adj Close` is meaningfully different from `Close`
   over a year.
@@ -231,24 +232,25 @@ value to both sides:
 
 ```ts
 const BENCHMARKS = {
-  // Price-only S&P 500 index. Adj Close ≡ Close on Yahoo, so on 1Y we
-  // fetch raw close for both target and benchmark — price-only on both
-  // sides, symmetric.
-  '^GSPC': { label: 'S&P 500 index (^GSPC)', policy: 'price-only'   },
-  // Dividend-bearing ETF. Adj Close incorporates SPY's distributions,
-  // so 1Y fetches adjusted close on both sides — total return on both,
-  // symmetric. This is the default because it matches what most users
-  // see in brokerage apps as "annual return."
-  'SPY':   { label: 'S&P 500 ETF (SPY)',      policy: 'total-return' },
+	// Price-only S&P 500 index. Adj Close ≡ Close on Yahoo, so on 1Y we
+	// fetch raw close for both target and benchmark — price-only on both
+	// sides, symmetric.
+	'^GSPC': { label: 'S&P 500 index (^GSPC)', policy: 'price-only' },
+	// Dividend-bearing ETF. Adj Close incorporates SPY's distributions,
+	// so 1Y fetches adjusted close on both sides — total return on both,
+	// symmetric. This is the default because it matches what most users
+	// see in brokerage apps as "annual return."
+	SPY: { label: 'S&P 500 ETF (SPY)', policy: 'total-return' }
 } as const;
 ```
 
-Labels are instrument-focused on purpose. The *return basis* that
+Labels are instrument-focused on purpose. The _return basis_ that
 actually shows on the chart is a function of `(range, benchmark)`, not
 the benchmark alone (see below), so authoritative basis copy lives on
 the rendered window label, not on the selector option.
 
 Route derives `adjusted` from `(range, benchmark)`:
+
 - **1D** (1m intraday): `adjusted=false` regardless of benchmark. Within
   one trading day there are no dividends and no splits to apply, so the
   distinction is moot; provider treatment of intraday adjusted bars also
@@ -260,19 +262,19 @@ relabeling of the same fact:
 
 ```ts
 function effectiveReturnBasis(
-  range: Range,
-  bench: keyof typeof BENCHMARKS
+	range: Range,
+	bench: keyof typeof BENCHMARKS
 ): 'price-only' | 'total-return' {
-  if (range === '1D') return 'price-only';
-  return BENCHMARKS[bench].policy;
+	if (range === '1D') return 'price-only';
+	return BENCHMARKS[bench].policy;
 }
 ```
 
 This value is what the UI window label shows ("1Y · regular · total
 return"), so picking SPY on 1D doesn't make us claim "total return" in
 the header while we're actually rendering raw intraday price. The
-selector option says *which instrument* you're comparing against; the
-window label says *which basis* the current comparison is on. They can
+selector option says _which instrument_ you're comparing against; the
+window label says _which basis_ the current comparison is on. They can
 disagree (1D forces price-only), and that's fine as long as the UI
 shows the truth.
 
@@ -282,9 +284,17 @@ adjustment leaks back in.
 
 ## Server route
 
+> **Superseded.** The live chart endpoint is now
+> `GET /api/history-multi?symbols=AAPL,SPY&basis=total&range=1Y` — one ordered
+> `symbols` list (no target/benchmark split), an explicit `basis` toggle, union +
+> forward-fill alignment, and a per-series `kind`/`asset`. See
+> `docs/plans/2026-06-13-unified-symbol-entry.md`. The single-pair shape below is
+> retained as historical design context.
+
 `GET /api/history?symbol=AAPL&benchmark=SPY&range=1Y`
 
 Public response (thin client contract — only what the page renders):
+
 ```ts
 // Close-only comparison point. The price overlay needs `time` + `close`;
 // it doesn't need volume on either series. Volume lives on its own
@@ -293,36 +303,36 @@ Public response (thin client contract — only what the page renders):
 type ClosePoint = { time: number; close: number };
 
 type HistoryResponse = {
-  // The chart's source of truth. No other client-visible series.
-  aligned: { target: ClosePoint[]; benchmark: ClosePoint[] };
-  // Target-only volume sub-pane data, on the **target's own time index**
-  // — not the inner-join intersection used for the price comparison.
-  // The volume pane is labeled "target's volume" in the UI, so we ship
-  // the target's true bars; tying it to the intersection would silently
-  // zero out a real volume bar whenever the benchmark happened to be
-  // missing that same timestamp (a real edge-of-window case). The chart's
-  // time scale is shared, so volume bars at intersection-gap timestamps
-  // render fine — the price overlay simply has a gap at those instants.
-  targetVolume: { time: number; volume: number }[];
-  meta: {
-    target:    { symbol: string; currency: string; meta: InstrumentMeta };
-    benchmark: { symbol: string; currency: string; meta: InstrumentMeta };
-    interval: Interval;
-    session: SessionPolicy;
-    timezone: string;          // common timezone for the session
-    windowStart: number;       // unix s, UTC
-    windowEnd:   number;       // unix s, UTC
-    // The basis the comparison is actually rendered on, derived by the
-    // route from (range, benchmark) — see `effectiveReturnBasis()`. The
-    // UI window label reads this rather than inferring from the
-    // benchmark's selector label, so 1D + SPY correctly shows
-    // "price-only" even though SPY's policy is total-return.
-    returnBasis: 'price-only' | 'total-return';
-  };
-  summary: {
-    target:    { lastPrice: number; lastPriceTime: number; pctChange: number };
-    benchmark: { lastPrice: number; lastPriceTime: number; pctChange: number };
-  };
+	// The chart's source of truth. No other client-visible series.
+	aligned: { target: ClosePoint[]; benchmark: ClosePoint[] };
+	// Target-only volume sub-pane data, on the **target's own time index**
+	// — not the inner-join intersection used for the price comparison.
+	// The volume pane is labeled "target's volume" in the UI, so we ship
+	// the target's true bars; tying it to the intersection would silently
+	// zero out a real volume bar whenever the benchmark happened to be
+	// missing that same timestamp (a real edge-of-window case). The chart's
+	// time scale is shared, so volume bars at intersection-gap timestamps
+	// render fine — the price overlay simply has a gap at those instants.
+	targetVolume: { time: number; volume: number }[];
+	meta: {
+		target: { symbol: string; currency: string; meta: InstrumentMeta };
+		benchmark: { symbol: string; currency: string; meta: InstrumentMeta };
+		interval: Interval;
+		session: SessionPolicy;
+		timezone: string; // common timezone for the session
+		windowStart: number; // unix s, UTC
+		windowEnd: number; // unix s, UTC
+		// The basis the comparison is actually rendered on, derived by the
+		// route from (range, benchmark) — see `effectiveReturnBasis()`. The
+		// UI window label reads this rather than inferring from the
+		// benchmark's selector label, so 1D + SPY correctly shows
+		// "price-only" even though SPY's policy is total-return.
+		returnBasis: 'price-only' | 'total-return';
+	};
+	summary: {
+		target: { lastPrice: number; lastPriceTime: number; pctChange: number };
+		benchmark: { lastPrice: number; lastPriceTime: number; pctChange: number };
+	};
 };
 ```
 
@@ -330,6 +340,7 @@ Server keeps the full provider `HistoryResult` (with raw `bars`) and the
 `ProviderTrace` in-memory for the duration of the request — for the
 alignment/summary computation and for logging — but they are **not**
 serialized to the client. Reasons to keep the wire payload thin:
+
 - One canonical comparison series on the wire = no second client-side
   data path to drift from chart semantics.
 - Smaller cache entries (`caches.default` is data-center-local; small
@@ -337,6 +348,7 @@ serialized to the client. Reasons to keep the wire payload thin:
 - Easier to evolve provider internals without changing the public contract.
 
 Two separate concepts in `summary`, deliberately not collapsed:
+
 - **`pctChange`** is computed from the **aligned** series
   (`(aligned[last].close - aligned[0].close) / aligned[0].close * 100`),
   so the header number and the chart endpoints always agree.
@@ -352,9 +364,10 @@ Hardening — split between in-process (best-effort, dev/local) and edge
 (production abuse boundary):
 
 **In-process (optimization, not security):**
-- **Canonicalize, then validate.** Order matters. *First* trim and
+
+- **Canonicalize, then validate.** Order matters. _First_ trim and
   uppercase the inbound `(symbol, benchmark, range)` to produce the
-  canonical form. *Second* validate that canonical form against:
+  canonical form. _Second_ validate that canonical form against:
   symbol regex `^[A-Z\^.\-]{1,8}$`, range whitelist `{1D, 1Y}`,
   benchmark allowlist (see In-scope check). The ticker input is free
   text, so `aapl` and `  AAPL  ` must both be accepted — they normalize
@@ -380,11 +393,12 @@ Hardening — split between in-process (best-effort, dev/local) and edge
   failure (no provider response leakage to client).
 
 **Edge (primary controls once on CF Workers — not absolute):**
+
 - **Cloudflare Workers Rate Limiting binding** in front of the route —
   the primary per-IP control. (This binding is supported on Workers but
-  *not* on Pages Functions — see Stack notes for why we chose the
+  _not_ on Pages Functions — see Stack notes for why we chose the
   Workers Static Assets target.) Important caveats per Cloudflare's docs:
-  it's *local to each Cloudflare location* and *eventually consistent*,
+  it's _local to each Cloudflare location_ and _eventually consistent_,
   so it is not a strict global cap; and IP-based keys produce false
   positives for NAT/CGNAT/corporate users sharing one egress IP. So:
   - Set the limit generously enough that a small office on one IP
@@ -393,7 +407,7 @@ Hardening — split between in-process (best-effort, dev/local) and edge
     tune from data, not from guesses.
   - Treat this as raising the cost of abuse, not as authoritative
     enforcement.
-- **Edge cache (Worker-generated, so explicit).** Cloudflare does *not*
+- **Edge cache (Worker-generated, so explicit).** Cloudflare does _not_
   automatically cache Worker-generated responses based on
   `Cache-Control` headers; per CF docs, "the Cache API is the only
   option to customize caching" for Workers without a backend origin.
@@ -403,7 +417,7 @@ Hardening — split between in-process (best-effort, dev/local) and edge
     request — see Canonicalization) and do
     `caches.default.match(cacheKey)` first. On miss, run the provider +
     alignment + summary, then `caches.default.put(cacheKey,
-    response.clone())` with a 60s TTL via the response's
+response.clone())` with a 60s TTL via the response's
     `Cache-Control` (only meaningful inside the Cache API call). Keying
     off the raw request would let lowercase symbols, surplus whitespace,
     or reordered params miss the cache and re-hit Yahoo, undermining the
@@ -419,7 +433,7 @@ Hardening — split between in-process (best-effort, dev/local) and edge
     cacheable upstream call behind a real subrequest URL where CF's
     normal HTTP caching applies (see Risks).
   - We still set `Cache-Control: public, max-age=0, s-maxage=60` on the
-    response so any CDN/intermediary that *does* honor it behaves
+    response so any CDN/intermediary that _does_ honor it behaves
     correctly; just don't count on it doing the work.
 - Optional but cheap: WAF rule rejecting requests with no `Accept` header
   / non-browser UA patterns if abuse appears.
@@ -434,7 +448,7 @@ shipped-benchmark have different risk profiles:**
 - **Benchmark (we ship the list).** Symbol must be a key in the
   curated `BENCHMARKS` map (see "Adjustment policy is a property of the
   benchmark"). Each entry carries a label and an adjustment policy that
-  the route uses to derive the `adjusted` flag for *both* sides of the
+  the route uses to derive the `adjusted` flag for _both_ sides of the
   fetch — guaranteeing symmetric return basis. The UI exposes this as a
   selector, not free text (see UI section), so the request can never
   carry an unsupported benchmark. Whenever we add a benchmark to the
@@ -478,7 +492,7 @@ shipped-benchmark have different risk profiles:**
     (default **`SPY`**, with `^GSPC` as the alternative). Labels in
     the selector come from `BENCHMARKS[key].label` and are
     **instrument-focused** (e.g. "S&P 500 ETF (SPY)") — they identify
-    *which thing* you're comparing against, not the return basis. The
+    _which thing_ you're comparing against, not the return basis. The
     basis depends on `(range, benchmark)`, and is rendered on the
     window label below. Not a free-text input — the backend only
     accepts curated benchmarks, so a free-text field would advertise a
@@ -567,35 +581,35 @@ shipped-benchmark have different risk profiles:**
       timestamps, matching interval+session for paired fetches, and
       canonical `InstrumentMeta`.
     - **Provider fixtures** — for `^GSPC`, `SPY`, `AAPL`, and **`BRK.B`**,
-      store the *full* recorded `yahoo-finance2` response (the raw
+      store the _full_ recorded `yahoo-finance2` response (the raw
       provider payload, not just the canonical output it would produce).
       Fixture set rationale:
-        - `^GSPC` — index benchmark, price-only adjustment policy.
-        - `SPY` — ETF benchmark, total-return adjustment policy.
-        - `AAPL` — plain US-listed equity with both historical splits
-          and dividends; exercises the adjusted-close mapping.
-        - `BRK.B` — dotted-class share. The validation regex
-          `^[A-Z\^.\-]{1,8}$` admits `.`, so class-share names are an
-          in-scope input class; without a fixture, the provider's
-          symbol-normalization path (e.g. dot-vs-dash, class-share
-          encoding) is uncovered by the blocking suite and a normalization
-          regression on a real user input would only surface in the
-          non-blocking live smoke. If we ever decide v1 won't support
-          class shares, narrow the regex to drop `.` and remove this
-          fixture — but the regex and the fixture set must stay in sync.
-      The contract suite replays the real provider mapping over the
-      recorded payload, so it can assert full-series invariants
-      (monotonic timestamps across every bar, no nulls/NaN closes
-      mid-series, the `InstrumentMeta` translation path, the symbol
-      normalization path) — not just endpoint snapshots. Mid-series
-      mapping bugs that don't move first/last would otherwise slip
-      through. First/last bar summaries are kept as a human-readable
-      PR-review aid (so a reviewer can eyeball "still 2024-01-02 →
-      2024-12-31" without diffing thousands of bars), but the gate runs
-      over the full payload. Refresh via `npm run fixtures:refresh`;
-      review the diff in PR.
+      - `^GSPC` — index benchmark, price-only adjustment policy.
+      - `SPY` — ETF benchmark, total-return adjustment policy.
+      - `AAPL` — plain US-listed equity with both historical splits
+        and dividends; exercises the adjusted-close mapping.
+      - `BRK.B` — dotted-class share. The validation regex
+        `^[A-Z\^.\-]{1,8}$` admits `.`, so class-share names are an
+        in-scope input class; without a fixture, the provider's
+        symbol-normalization path (e.g. dot-vs-dash, class-share
+        encoding) is uncovered by the blocking suite and a normalization
+        regression on a real user input would only surface in the
+        non-blocking live smoke. If we ever decide v1 won't support
+        class shares, narrow the regex to drop `.` and remove this
+        fixture — but the regex and the fixture set must stay in sync.
+        The contract suite replays the real provider mapping over the
+        recorded payload, so it can assert full-series invariants
+        (monotonic timestamps across every bar, no nulls/NaN closes
+        mid-series, the `InstrumentMeta` translation path, the symbol
+        normalization path) — not just endpoint snapshots. Mid-series
+        mapping bugs that don't move first/last would otherwise slip
+        through. First/last bar summaries are kept as a human-readable
+        PR-review aid (so a reviewer can eyeball "still 2024-01-02 →
+        2024-12-31" without diffing thousands of bars), but the gate runs
+        over the full payload. Refresh via `npm run fixtures:refresh`;
+        review the diff in PR.
     - **Live-provider smoke (non-blocking, scheduled).** A separate job
-      runs the contract suite against the *real* Yahoo endpoint on a
+      runs the contract suite against the _real_ Yahoo endpoint on a
       cron (e.g. daily) and as a non-blocking post-deploy check. When
       it fails it pings me, but it doesn't break PR CI. This is the
       Yahoo drift detector that matters operationally.
@@ -604,7 +618,7 @@ shipped-benchmark have different risk profiles:**
 13. **Pre-deploy (CF Workers Static Assets):** write `wrangler.toml` with
     `assets` binding + Rate Limiting binding; verify `yahoo-finance2`
     runs in the Workers runtime; confirm `caches.default` is being
-    populated and read by hitting `/api/history` twice from the same PoP
+    populated and read by hitting `/api/history-multi` twice from the same PoP
     and observing the second request skip the upstream call (log it);
     enable the scheduled live-provider smoke job.
 
