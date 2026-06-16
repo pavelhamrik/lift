@@ -1,15 +1,23 @@
 # Lift
 
-A small SvelteKit web app that overlays a US-listed stock against a benchmark
-index/ETF on a single normalized-percent chart, with the target's volume in a sub-pane.
+A SvelteKit app that overlays up to 16 stocks, ETFs, and indices on a single
+normalized-percent chart — every series rebased to % change from the start of the
+selected window, so they share one y-axis regardless of price level or currency —
+with the first equity's volume in a sub-pane. Runs on Cloudflare Workers.
+
+Instruments are added from one search field (instant local matches + debounced
+Yahoo autocomplete, grouped by type); the default view is AAPL vs SPY. The full
+selection is encoded in the URL for sharing, and signing in (Supabase) saves and
+reloads your selections. Analytics are cookieless and consent-based.
 
 - **Range**: 1D / 5D / 1M / 6M / YTD / 1Y / 5Y / MAX (default 1Y). Intraday
   ranges use 1-minute or 5-minute bars; daily ranges use daily bars; 5Y uses
   weekly; MAX uses monthly — all routed through the same `HistoryRequest`
   shape so target and benchmark always fetch with identical interval/session/
   adjusted/period.
-- **Benchmark**: 20 options across 4 groups (US, Europe, Global, Asia-Pacific) —
-  default `SPY` (S&P 500 ETF, total-return). Adjustment is bound to the benchmark
+- **Benchmarks**: 21 curated indices and ETF proxies across 4 regions (US, Europe,
+  Asia-Pacific, Global), shown in the browse-on-focus panel alongside popular
+  tickers — default `SPY` (S&P 500 ETF, total-return). Adjustment is bound to the benchmark
   entry and applied to both sides so the comparison stays on a single return basis
   (indices → price-only; ETFs → total-return). See `PLAN.md` for the full rationale.
 
@@ -23,8 +31,9 @@ index/ETF on a single normalized-percent chart, with the target's volume in a su
     Daily / weekly / monthly bars are normalized to the bar's exchange-local
     calendar date (UTC-midnight), so 1M+ ranges align correctly across sessions.
 
-- **Provider**: Yahoo via `yahoo-finance2`, abstracted behind a `PriceProvider`
+- **Provider**: Yahoo's JSON chart API, fetched directly behind a typed provider
   interface so swapping data sources stays local to `src/lib/providers/`.
+  `yahoo-finance2` is a devDependency, used only to record test fixtures.
 
 ## Run locally
 
@@ -34,7 +43,8 @@ npm run dev          # live data from Yahoo
 npm run dev:static   # synthetic data, never touches Yahoo
 ```
 
-Then open the URL Vite prints. Type a ticker, pick a benchmark, toggle 1D / 1Y.
+Then open the URL Vite prints. Search a ticker or index, add up to 16 series, and
+toggle ranges from 1D to MAX.
 
 ### `dev:static` — Yahoo-independent local data
 
@@ -112,5 +122,6 @@ TradingView attribution is required on public pages where the chart is rendered.
 
 ## Out of scope (v1)
 
-Autocomplete, multiple comparison targets, non-US listings, rVol, persistence beyond
-theme preference, auth, E2E / visual tests.
+Relative volume (rVol), FX-adjusted cross-currency comparison, and E2E / visual
+tests. (Autocomplete, multi-symbol overlays, non-US instruments, accounts, and
+saved selections — all once deferred — have since shipped.)
