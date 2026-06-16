@@ -121,7 +121,7 @@
 		<h2 class="mb-3 text-xl font-semibold tracking-tight">Data source</h2>
 		<div class="space-y-3 text-base leading-relaxed text-zinc-700 dark:text-zinc-300">
 			<p>
-				All price and volume data comes from
+				All price and volume data comes directly from
 				<a
 					href="https://finance.yahoo.com/"
 					target="_blank"
@@ -130,17 +130,9 @@
 				>
 					Yahoo Finance
 				</a>
-				via the
-				<a
-					href="https://github.com/gadicc/node-yahoo-finance2"
-					target="_blank"
-					rel="noreferrer noopener"
-					class="text-(--color-foreground) underline underline-offset-2 hover:text-(--color-primary)"
-				>
-					yahoo-finance2
-				</a>
-				client. Ticker name lookups use Yahoo's quote endpoint. Yahoo data is unofficial and provided
-				without uptime or accuracy guarantees; please don't use this tool for investment decisions.
+				— its public chart API for prices, and its symbol-lookup endpoint for ticker search and names.
+				Yahoo data is unofficial and provided without uptime or accuracy guarantees; please don't use
+				this tool for investment decisions.
 			</p>
 			<p>
 				Charts are drawn with

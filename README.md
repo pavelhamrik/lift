@@ -17,9 +17,10 @@ reloads your selections. Analytics are cookieless and consent-based.
   adjusted/period.
 - **Benchmarks**: 21 curated indices and ETF proxies across 4 regions (US, Europe,
   Asia-Pacific, Global), shown in the browse-on-focus panel alongside popular
-  tickers — default `SPY` (S&P 500 ETF, total-return). Adjustment is bound to the benchmark
-  entry and applied to both sides so the comparison stays on a single return basis
-  (indices → price-only; ETFs → total-return). See `PLAN.md` for the full rationale.
+  tickers — default `SPY` (S&P 500 ETF). **Return basis** is one uniform toggle, not
+  inferred per symbol: every series renders as `total` (dividend-adjusted) or `price`,
+  your choice carried in the URL and saved with your view. It defaults to total return,
+  and intraday (1D/5D) ranges are always price-only. See `PLAN.md` for the full rationale.
 
   Two caveats from the cross-market expansion:
   - **Currencies are not FX-adjusted.** When you compare AAPL to FTSE 100, the
@@ -72,7 +73,8 @@ Scope and caveats:
 The chart endpoint is `GET /api/history-multi?symbols=AAPL,SPY&basis=total&range=1Y`
 — one ordered `symbols` list (kind is derived per symbol: Yahoo `INDEX` → gray
 dashed, else colored solid), a `basis` toggle (`total`/`price`), and a `range`.
-It validates each symbol, clamps to `MAX_SYMBOLS`, aligns the series by union +
+It validates each symbol and rejects (`400`) an empty list or more than
+`MAX_SYMBOLS` (16) — it does not clamp — then aligns the series by union +
 forward-fill on a common baseline, throttles per-IP (sliding window), caches the
 response in-process (LRU + 1-min TTL), and — on Cloudflare Workers — also writes
 to `caches.default` keyed by the request URL. Two helper endpoints back the
