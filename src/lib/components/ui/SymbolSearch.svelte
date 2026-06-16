@@ -348,7 +348,7 @@
 
 <svelte:window onkeydown={onWindowKeydown} />
 
-<div class="relative w-full min-w-0 sm:w-96">
+<div class="relative w-full min-w-0 sm:w-[28.8rem]">
 	<div class="relative flex items-center">
 		<svg
 			viewBox="0 0 20 20"

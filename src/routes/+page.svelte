@@ -681,7 +681,7 @@
 					role="radio"
 					aria-checked={range === r}
 					class={cn(
-						'inline-flex h-7 items-center justify-center rounded-full px-2 text-xs font-medium transition-colors',
+						'inline-flex h-7 items-center justify-center rounded-full px-2.5 text-xs font-medium transition-colors',
 						r !== 'MAX' && 'tracking-wide',
 						range === r
 							? 'bg-(--color-accent) text-(--color-foreground)'
