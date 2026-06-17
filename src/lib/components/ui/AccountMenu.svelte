@@ -209,7 +209,7 @@
 								placeholder="you@email.com"
 								autocomplete="email"
 								class={cn(
-									'h-9 w-full rounded-[calc(var(--radius)-2px)] border px-3 text-sm',
+									'h-9 w-full rounded-[calc(var(--radius)-4px)] border px-3 text-sm',
 									'bg-(--color-card) text-(--color-card-foreground)',
 									'placeholder:text-(--color-muted-foreground)',
 									'border-(--color-input) focus-ring'
@@ -256,7 +256,7 @@
 								bind:value={saveName}
 								placeholder={defaultName()}
 								class={cn(
-									'h-8 min-w-0 flex-1 rounded-[calc(var(--radius)-2px)] border px-2.5 text-sm',
+									'h-8 min-w-0 flex-1 rounded-[calc(var(--radius)-4px)] border px-2.5 text-sm',
 									'bg-(--color-card) text-(--color-card-foreground)',
 									'placeholder:text-(--color-muted-foreground)',
 									'border-(--color-input) focus-ring'
@@ -303,7 +303,7 @@
 											type="button"
 											onclick={() => applySaved(row)}
 											class={cn(
-												'min-w-0 flex-1 truncate rounded-[calc(var(--radius)-2px)] px-2 py-1.5 text-left text-sm',
+												'min-w-0 flex-1 truncate rounded-[calc(var(--radius)-4px)] px-2 py-1.5 text-left text-sm',
 												'hover:bg-(--color-muted) focus:bg-(--color-muted) focus:outline-none'
 											)}
 										>

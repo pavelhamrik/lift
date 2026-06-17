@@ -397,104 +397,112 @@
 	</div>
 
 	{#if open && !disabled}
+		<!-- Outer card owns the opaque background. The inner element scrolls, so its
+		     elastic-overscroll gutter reveals the popover bg, not the page behind it
+		     (WebKit doesn't paint the scroller's own bg into the rubber-band region). -->
 		<div
-			id="symbol-search-listbox"
-			role="listbox"
-			aria-label="Symbol results"
 			class={cn(
-				'absolute z-50 mt-1 max-h-[min(70vh,420px)] w-full overflow-y-auto',
+				'absolute z-50 mt-1 w-full overflow-hidden',
 				'rounded-[var(--radius)] border shadow-md',
 				'bg-(--color-popover) text-(--color-popover-foreground)',
-				'border-(--color-border) p-1'
+				'border-(--color-border)'
 			)}
 		>
-			{#if loadingRemote && merged.length === 0 && displayGroups.length === 0}
-				<div class="px-2 py-2 text-xs text-(--color-muted-foreground)">Searching…</div>
-			{/if}
-
-			{#each displayGroups as group, gi (group.heading + gi)}
-				{#if gi > 0}
-					<div class="my-1 h-px bg-(--color-border)"></div>
+			<div
+				id="symbol-search-listbox"
+				role="listbox"
+				aria-label="Symbol results"
+				class="max-h-[min(70vh,420px)] overflow-y-auto p-1"
+			>
+				{#if loadingRemote && merged.length === 0 && displayGroups.length === 0}
+					<div class="px-2 py-2 text-xs text-(--color-muted-foreground)">Searching…</div>
 				{/if}
-				<div
-					class="px-2 py-1 text-[11px] font-medium tracking-wide text-(--color-muted-foreground) uppercase"
-				>
-					{group.heading}
-				</div>
-				{#each group.options as opt, oi (opt.result.symbol + (opt.exact ? ':exact' : ''))}
-					{@const idx = optionIndex(group, oi)}
-					<button
-						type="button"
-						role="option"
-						aria-selected={highlight === idx}
-						disabled={opt.disabled}
-						onmousedown={(e) => e.preventDefault()}
-						onmouseenter={() => (highlight = idx)}
-						onclick={() => select(opt)}
-						class={cn(
-							'flex w-full cursor-default items-center justify-between gap-2',
-							'rounded-[calc(var(--radius)-2px)] px-2 py-1.5 text-left text-sm select-none',
-							highlight === idx && 'bg-(--color-muted)',
-							'disabled:opacity-40',
-							'outline-none'
-						)}
+
+				{#each displayGroups as group, gi (group.heading + gi)}
+					{#if gi > 0}
+						<div class="my-1 h-px bg-(--color-border)"></div>
+					{/if}
+					<div
+						class="px-2 py-1 text-[11px] font-medium tracking-wide text-(--color-muted-foreground) uppercase"
 					>
-						<span class="flex min-w-0 items-center gap-2">
-							<span class="shrink-0 font-medium text-(--color-foreground)">{opt.result.symbol}</span
-							>
-							{#if opt.exact}
-								<span class="truncate text-xs text-(--color-muted-foreground)">
-									Add exact symbol
-								</span>
-							{:else if opt.result.name}
-								<span class="truncate text-xs text-(--color-muted-foreground)">
-									{opt.result.name}
-								</span>
-							{/if}
-						</span>
-						<span class="flex shrink-0 items-center gap-1.5">
-							{#if opt.disabled}
-								<svg
-									viewBox="0 0 20 20"
-									class="h-3.5 w-3.5 text-(--color-muted-foreground)"
-									fill="none"
-									stroke="currentColor"
-									stroke-width="2"
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									aria-hidden="true"
+						{group.heading}
+					</div>
+					{#each group.options as opt, oi (opt.result.symbol + (opt.exact ? ':exact' : ''))}
+						{@const idx = optionIndex(group, oi)}
+						<button
+							type="button"
+							role="option"
+							aria-selected={highlight === idx}
+							disabled={opt.disabled}
+							onmousedown={(e) => e.preventDefault()}
+							onmouseenter={() => (highlight = idx)}
+							onclick={() => select(opt)}
+							class={cn(
+								'flex w-full cursor-default items-center justify-between gap-2',
+								'rounded-[calc(var(--radius)-4px)] px-2 py-1.5 text-left text-sm select-none',
+								highlight === idx && 'bg-(--color-muted)',
+								'disabled:opacity-40',
+								'outline-none'
+							)}
+						>
+							<span class="flex min-w-0 items-center gap-2">
+								<span class="shrink-0 font-medium text-(--color-foreground)"
+									>{opt.result.symbol}</span
 								>
-									<path d="M4 10l4 4 8-8" />
-								</svg>
-							{:else}
-								<span class="text-[11px] text-(--color-muted-foreground)">
-									{assetHint(opt.result.asset)}{opt.result.exchange
-										? ` · ${opt.result.exchange}`
-										: ''}
-								</span>
-							{/if}
-						</span>
-					</button>
+								{#if opt.exact}
+									<span class="truncate text-xs text-(--color-muted-foreground)">
+										Add exact symbol
+									</span>
+								{:else if opt.result.name}
+									<span class="truncate text-xs text-(--color-muted-foreground)">
+										{opt.result.name}
+									</span>
+								{/if}
+							</span>
+							<span class="flex shrink-0 items-center gap-1.5">
+								{#if opt.disabled}
+									<svg
+										viewBox="0 0 20 20"
+										class="h-3.5 w-3.5 text-(--color-muted-foreground)"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										aria-hidden="true"
+									>
+										<path d="M4 10l4 4 8-8" />
+									</svg>
+								{:else}
+									<span class="text-[11px] text-(--color-muted-foreground)">
+										{assetHint(opt.result.asset)}{opt.result.exchange
+											? ` · ${opt.result.exchange}`
+											: ''}
+									</span>
+								{/if}
+							</span>
+						</button>
+					{/each}
 				{/each}
-			{/each}
 
-			{#if exactError}
-				<div class="px-2 py-2 text-xs text-(--color-destructive)">Symbol not found.</div>
-			{:else if remoteError && merged.length === 0}
-				<div class="px-2 py-2 text-xs text-(--color-muted-foreground)">
-					Couldn’t reach search. Try the exact symbol.
-				</div>
-			{:else if normalizedQuery && displayGroups.length === 0 && !loadingRemote}
-				<div class="px-2 py-2 text-xs text-(--color-muted-foreground)">No matches.</div>
-			{/if}
+				{#if exactError}
+					<div class="px-2 py-2 text-xs text-(--color-destructive)">Symbol not found.</div>
+				{:else if remoteError && merged.length === 0}
+					<div class="px-2 py-2 text-xs text-(--color-muted-foreground)">
+						Couldn’t reach search. Try the exact symbol.
+					</div>
+				{:else if normalizedQuery && displayGroups.length === 0 && !loadingRemote}
+					<div class="px-2 py-2 text-xs text-(--color-muted-foreground)">No matches.</div>
+				{/if}
 
-			{#if normalizedQuery && isValidSymbol(normalizedQuery)}
-				<div class="mt-1 border-t border-(--color-border) px-2 pt-1.5 pb-1">
-					<span class="text-[11px] text-(--color-muted-foreground)">
-						Press {isMac ? '⌘' : 'Ctrl'}+Enter to add “{normalizedQuery}” exactly
-					</span>
-				</div>
-			{/if}
+				{#if normalizedQuery && isValidSymbol(normalizedQuery)}
+					<div class="mt-1 border-t border-(--color-border) px-2 pt-1.5 pb-1">
+						<span class="text-[11px] text-(--color-muted-foreground)">
+							Press {isMac ? '⌘' : 'Ctrl'}+Enter to add “{normalizedQuery}” exactly
+						</span>
+					</div>
+				{/if}
+			</div>
 		</div>
 	{/if}
 </div>
