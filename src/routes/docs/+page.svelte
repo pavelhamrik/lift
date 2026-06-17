@@ -69,7 +69,7 @@
 			</p>
 			<p>
 				The <strong>⋯</strong> menu (top right) holds <strong>Reset to defaults</strong> — which
-				restores the default selection (AAPL + S&amp;P 500 ETF) — the <strong>Return basis</strong>
+				restores the default selection (AAPL + TSLA + S&amp;P 500 ETF) — the <strong>Return basis</strong>
 				toggle (see below), a link to these docs, and the light/dark theme toggle. The chart re-fetches
 				your selection automatically about once a minute while the tab is open, so there's no manual refresh.
 			</p>

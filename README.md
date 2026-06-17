@@ -6,7 +6,7 @@ selected window, so they share one y-axis regardless of price level or currency 
 with the first equity's volume in a sub-pane. Runs on Cloudflare Workers.
 
 Instruments are added from one search field (instant local matches + debounced
-Yahoo autocomplete, grouped by type); the default view is AAPL vs SPY. The full
+Yahoo autocomplete, grouped by type); the default view is AAPL + TSLA vs SPY. The full
 selection is encoded in the URL for sharing, and signing in (Supabase) saves and
 reloads your selections. Analytics are cookieless and consent-based.
 

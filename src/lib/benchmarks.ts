@@ -95,8 +95,8 @@ export const BENCHMARK_GROUP_LABELS: Record<BenchmarkGroup, string> = {
 	APAC: 'Asia-Pacific'
 };
 
-/** Default unified selection: one equity + one ETF proxy (preserves the old AAPL + SPY default). */
-export const DEFAULT_SYMBOLS: string[] = ['AAPL', 'SPY'];
+/** Default unified selection: two equities + one ETF proxy. */
+export const DEFAULT_SYMBOLS: string[] = ['AAPL', 'TSLA', 'SPY'];
 export const DEFAULT_BASIS: ReturnBasis = 'total-return';
 export const DEFAULT_RANGE: Range = '1Y';
 
