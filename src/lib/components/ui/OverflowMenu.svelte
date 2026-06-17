@@ -25,7 +25,7 @@
 
 	const itemClass = cn(
 		'relative flex w-full cursor-default items-center gap-2.5 no-underline',
-		'rounded-[calc(var(--radius)-2px)] px-2 py-2 text-sm select-none',
+		'rounded-[calc(var(--radius)-4px)] px-2 py-2 text-sm select-none',
 		'text-(--color-popover-foreground)',
 		'data-[highlighted]:bg-(--color-muted) data-[highlighted]:text-(--color-foreground)',
 		'data-[disabled]:opacity-40 data-[disabled]:pointer-events-none',
